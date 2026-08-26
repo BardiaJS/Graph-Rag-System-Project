@@ -17,7 +17,117 @@ use Smalot\PdfParser\Parser;
 
 class DocumentController extends Controller
 {
+    /**
+     * دریافت لیست اسناد یک جلسه خاص
+     */
+    public function getDocuments(ChatSession $session)
+    {
+        $user = Auth::user();
+        
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated'
+            ], 401);
+        }
 
+        if ($session->user_id !== $user->id) {
+            return response()->json([
+                'message' => 'You do not have access to this session'
+            ], 403);
+        }
+
+        $documents = Document::where('chat_session_id', $session->id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'documents' => $documents,
+            'total' => $documents->count()
+        ]);
+    }
+
+    /**
+     * دریافت یک سند خاص
+     */
+    public function get_document(Document $document)
+    {
+        $user = Auth::user();
+        
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated'
+            ], 401);
+        }
+
+        // بررسی مالکیت سند (از طریق Session)
+        $session = ChatSession::find($document->chat_session_id);
+        if (!$session || $session->user_id !== $user->id) {
+            return response()->json([
+                'message' => 'You do not have access to this document'
+            ], 403);
+        }
+
+        return response()->json([
+            'document' => $document
+        ]);
+    }
+
+    /**
+     * دریافت همه اسناد کاربر (بدون فیلتر Session)
+     */
+    public function documents()
+    {
+        $user = Auth::user();
+        
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated'
+            ], 401);
+        }
+
+        $documents = Document::where('user_id', $user->id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'documents' => $documents,
+            'total' => $documents->count()
+        ]);
+    }
+
+    /**
+     * دریافت سوالات یک جلسه
+     */
+    public function getQuestions(ChatSession $session)
+    {
+        $user = Auth::user();
+        
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated'
+            ], 401);
+        }
+
+        if ($session->user_id !== $user->id) {
+            return response()->json([
+                'message' => 'You do not have access to this session'
+            ], 403);
+        }
+
+        $questions = Question::where('chat_session_id', $session->id)
+            ->with('latestAnswer')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'questions' => $questions,
+            'total' => $questions->count()
+        ]);
+    }
+
+    /**
+     * آپلود اسناد
+     */
     public function upload_document(DocumentUploadRequest $request, ChatSession $session)
     {
         // ۱. دریافت کاربر از احراز هویت
@@ -51,7 +161,7 @@ class DocumentController extends Controller
         }
         
         $uploadedDocuments = [];
-        $documentIds = []; // برای ارسال به Job
+        $documentIds = [];
         $pdfParser = new Parser();
         
         // ۵. پردازش هر فایل
@@ -79,9 +189,10 @@ class DocumentController extends Controller
 
             $document = Document::create($documentData);
             $uploadedDocuments[] = $document;
-            $documentIds[] = $document->id; // جمع‌آوری IDها
+            $documentIds[] = $document->id;
         }
         
+        // ۶. ارسال Job برای پردازش
         if (!empty($documentIds)) {
             DocumentProcessJob::dispatch($user, $session, $documentIds);
         }
@@ -89,16 +200,30 @@ class DocumentController extends Controller
         return response()->json([
             'message' => 'Documents uploaded successfully',
             'documents' => $uploadedDocuments,
+            'document_ids' => $documentIds,
             'processing_started' => true
         ], 200);
     }
 
-
-
-
+    /**
+     * پرسش سوال
+     */
     public function search(ChatSession $session, QuestionCreateRequest $request)
     {
         $user = Auth::user();
+        
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated'
+            ], 401);
+        }
+
+        if ($session->user_id !== $user->id) {
+            return response()->json([
+                'message' => 'You do not have access to this session'
+            ], 403);
+        }
+
         $validated_data = $request->validated();
         $validated_data['user_id'] = $user->id;
         $validated_data['chat_session_id'] = $session->id;
@@ -136,11 +261,22 @@ class DocumentController extends Controller
         ], 202);
     }
 
+    /**
+     * دریافت نتیجه سوال
+     */
     public function getResult(Request $request, $questionId)
     {
         $user = Auth::user();
+        
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated'
+            ], 401);
+        }
+
         $question = Question::where('id', $questionId)
             ->where('user_id', $user->id)
+            ->with('latestAnswer')  // ← این مهم است
             ->first();
 
         if (!$question) {
@@ -149,23 +285,35 @@ class DocumentController extends Controller
             ], 404);
         }
 
+        $answer = $question->latestAnswer;  // ← دریافت از جدول answers
+
         return response()->json([
             'question' => $question->content,
-            'answer' => $question->answer,
+            'answer' => $answer->answer ?? 'پاسخی یافت نشد',  // ← از answers
             'status' => $question->status,
-            'sources' => $question->sources,
-            'sub_queries' => $question->sub_queries,
-            'search_plans' => $question->search_plans,
-            'num_searches' => $question->num_searches,
+            'sources' => $answer->sources ?? null,
+            'sub_queries' => $answer->sub_queries ?? null,
+            'search_plans' => $answer->search_plans ?? null,
+            'num_searches' => $answer->num_searches ?? 0,
             'created_at' => $question->created_at,
-            'answered_at' => $question->answered_at,
+            'answered_at' => $answer->answered_at ?? null,
             'error' => $question->error_message
         ]);
     }
 
+    /**
+     * دریافت وضعیت سوال
+     */
     public function getStatus($questionId)
-    {
+    {   
         $user = Auth::user();
+        
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated'
+            ], 401);
+        }
+
         $question = Question::where('id', $questionId)
             ->where('user_id', $user->id)
             ->first();
@@ -179,5 +327,53 @@ class DocumentController extends Controller
             'status' => $question->status,
             'is_completed' => in_array($question->status, ['completed', 'failed'])
         ]);
+    }
+
+    /**
+     * Webhook برای دریافت نتیجه پردازش از Python
+     */
+    public function webhook(Request $request)
+    {
+        Log::info('📨 Webhook received', $request->all());
+        
+        $validated = $request->validate([
+            'document_id' => 'required|exists:documents,id',
+            'status' => 'required|in:success,failed',
+            'pages' => 'nullable|integer',
+            'chunks' => 'nullable|integer',
+            'entities' => 'nullable|integer',
+            'figures' => 'nullable|integer',
+            'tables' => 'nullable|integer',
+            'qdrant_points' => 'nullable|integer',
+            'file_size' => 'nullable|integer'
+        ]);
+
+        $document = Document::find($validated['document_id']);
+
+        if ($validated['status'] === 'success') {
+            $document->update([
+                'processing_status' => 'completed',
+                'page_count' => $validated['pages'] ?? $document->page_count,
+                'processed_at' => now(),
+                'metadata' => array_merge($document->metadata ?? [], [
+                    'chunks' => $validated['chunks'] ?? 0,
+                    'entities' => $validated['entities'] ?? 0,
+                    'figures' => $validated['figures'] ?? 0,
+                    'tables' => $validated['tables'] ?? 0,
+                    'qdrant_points' => $validated['qdrant_points'] ?? 0,
+                ])
+            ]);
+
+            Log::info("✅ Document {$document->id} processed successfully via webhook");
+        } else {
+            $document->update([
+                'processing_status' => 'failed',
+                'processing_error' => 'Webhook reported failure'
+            ]);
+
+            Log::error("❌ Document {$document->id} processing failed via webhook");
+        }
+
+        return response()->json(['message' => 'Webhook received'], 200);
     }
 }

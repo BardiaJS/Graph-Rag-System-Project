@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ثبت نام در Graph-RAG</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .register-card {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 420px;
+            width: 100%;
+        }
+        .register-card .logo { text-align: center; margin-bottom: 30px; }
+        .register-card .logo i { font-size: 48px; color: #667eea; }
+        .register-card .logo h3 { font-weight: 700; margin-top: 10px; color: #2d3748; }
+        .register-card .logo p { color: #718096; font-size: 14px; }
+        .form-control {
+            border-radius: 10px;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            transition: all 0.3s;
+        }
+        .form-control:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 10px;
+            padding: 12px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+        }
+        .btn-primary:disabled { opacity: 0.7; transform: none; }
+        .login-link { color: #667eea; text-decoration: none; font-weight: 600; }
+        .login-link:hover { text-decoration: underline; }
+        .alert { border-radius: 10px; }
+        .password-toggle {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #a0aec0;
+            z-index: 10;
+        }
+        .password-toggle:hover { color: #4a5568; }
+        .input-group { position: relative; }
+    </style>
+</head>
+<body>
+    <div class="register-card">
+        <div class="logo">
+            <i class="fas fa-brain"></i>
+            <h3>Graph-RAG</h3>
+            <p>ایجاد حساب کاربری جدید</p>
+        </div>
+
+        <div id="alertContainer"></div>
+
+        <form id="registerForm">
+            <div class="mb-3">
+                <label class="form-label fw-bold">👤 نام کامل</label>
+                <input type="text" class="form-control" id="name" placeholder="نام و نام خانوادگی" required>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-bold">📧 ایمیل</label>
+                <input type="email" class="form-control" id="email" placeholder="example@email.com" required>
+            </div>
+
+            <div class="mb-4">
+                <label class="form-label fw-bold">🔒 رمز عبور</label>
+                <div class="input-group">
+                    <input type="password" class="form-control" id="password" placeholder="حداقل ۶ کاراکتر" required minlength="6">
+                    <span class="password-toggle" onclick="togglePassword()">
+                        <i class="fas fa-eye" id="passwordIcon"></i>
+                    </span>
+                </div>
+                <small class="text-muted">رمز عبور باید حداقل ۶ کاراکتر باشد</small>
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100" id="registerBtn">
+                <i class="fas fa-user-plus me-2"></i> ثبت نام
+            </button>
+        </form>
+
+        <div class="text-center mt-4">
+            <span>حساب کاربری دارید؟ </span>
+            <a href="login.html" class="login-link">وارد شوید</a>
+        </div>
+
+        <hr class="my-4">
+        <div class="text-center">
+            <small class="text-muted">حساب تست:</small>
+            <br>
+            <small class="text-muted">📧 test@example.com</small>
+            <br>
+            <small class="text-muted">🔑 password123</small>
+        </div>
+    </div>
+
+    <script>
+        function togglePassword() {
+            const password = document.getElementById('password');
+            const icon = document.getElementById('passwordIcon');
+            if (password.type === 'password') {
+                password.type = 'text';
+                icon.classList.replace('fa-eye', 'fa-eye-slash');
+            } else {
+                password.type = 'password';
+                icon.classList.replace('fa-eye-slash', 'fa-eye');
+            }
+        }
+
+        document.getElementById('registerForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const name = document.getElementById('name').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value;
+            const btn = document.getElementById('registerBtn');
+            
+            // ===== اعتبارسنجی ساده =====
+            if (!name || !email || !password) {
+                showAlert('لطفاً همه فیلدها را پر کنید', 'danger');
+                return;
+            }
+            
+            if (password.length < 6) {
+                showAlert('❌ رمز عبور باید حداقل ۶ کاراکتر باشد', 'danger');
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> در حال ثبت نام...';
+            
+            try {
+                const response = await fetch('http://localhost:8000/api/users/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    const token = data.token;
+                    
+                    if (!token) {
+                        showAlert('❌ توکن دریافت نشد!', 'danger');
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-user-plus me-2"></i> ثبت نام';
+                        return;
+                    }
+                    
+                    localStorage.setItem('api_token', token);
+                    localStorage.setItem('user_name', data.user?.name || name);
+                    localStorage.setItem('user_email', data.user?.email || email);
+                    localStorage.setItem('user_id', data.user?.id || 1);
+                    
+                    showAlert('✅ ثبت نام موفق! در حال انتقال...', 'success');
+                    setTimeout(() => {
+                        window.location.href = 'dashboard.html';
+                    }, 1000);
+                } else {
+                    let errorMsg = data.message || '❌ خطا در ثبت نام';
+                    if (data.errors) {
+                        errorMsg = Object.values(data.errors).flat().join('\n');
+                    }
+                    showAlert(errorMsg, 'danger');
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-user-plus me-2"></i> ثبت نام';
+                }
+            } catch (error) {
+                showAlert('❌ خطا در ارتباط با سرور: ' + error.message, 'danger');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-user-plus me-2"></i> ثبت نام';
+            }
+        });
+
+        function showAlert(message, type) {
+            const container = document.getElementById('alertContainer');
+            container.innerHTML = `
+                <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            setTimeout(() => {
+                const alert = container.querySelector('.alert');
+                if (alert) alert.classList.remove('show');
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

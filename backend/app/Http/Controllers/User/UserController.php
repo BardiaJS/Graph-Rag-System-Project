@@ -27,7 +27,7 @@ class UserController extends Controller
         $validated_data = $userLoginRequest->validated();
         if(Auth::attempt($validated_data)){
             $user = Auth::user();
-            $token = $user->createToken('acces_token');
+            $token = $user->createToken('auth_token')->plainTextToken;
             return response()->json([
                 'user' => $user ,
                 'token' => $token

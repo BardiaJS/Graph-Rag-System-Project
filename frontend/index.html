@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Graph-RAG</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: #1a1a2e;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #6c5ce7;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div style="text-align:center;">
+        <div class="loader"></div>
+        <h2>Graph-RAG</h2>
+        <p>در حال بررسی وضعیت ورود...</p>
+    </div>
+
+    <script>
+        // بررسی توکن
+        const token = localStorage.getItem('api_token');
+        
+        if (token) {
+            // اگر توکن وجود دارد، به داشبورد برو
+            window.location.href = 'dashboard.html';
+        } else {
+            // اگر توکن وجود ندارد، به صفحه ورود برو
+            window.location.href = 'login.html';
+        }
+    </script>
+</body>
+</html>

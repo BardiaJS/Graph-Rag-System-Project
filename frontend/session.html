@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph-RAG | سشن</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-color: #6c5ce7;
+            --success-color: #00b894;
+            --danger-color: #e17055;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+        }
+        .navbar-custom {
+            background: #1a1a2e;
+            padding: 12px 24px;
+        }
+        .navbar-custom .brand {
+            color: white;
+            font-weight: 700;
+            font-size: 20px;
+        }
+        .navbar-custom .brand i {
+            color: var(--primary-color);
+        }
+        .navbar-custom .session-title {
+            color: #a0a0b8;
+            font-size: 14px;
+        }
+        .navbar-custom .session-title span {
+            color: white;
+            font-weight: 600;
+        }
+        .card {
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            border: none;
+            margin-bottom: 20px;
+        }
+        .card-header {
+            background: white;
+            border-bottom: 1px solid #f0f2f5;
+            font-weight: 600;
+            padding: 16px 20px;
+        }
+        .drop-zone {
+            border: 2px dashed #dee2e6;
+            border-radius: 12px;
+            padding: 30px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #fafafa;
+        }
+        .drop-zone.dragover {
+            border-color: var(--primary-color);
+            background: rgba(108, 92, 231, 0.05);
+        }
+        .file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            margin-bottom: 4px;
+        }
+        .file-item .remove-file {
+            color: var(--danger-color);
+            cursor: pointer;
+            border: none;
+            background: none;
+        }
+        .chat-container {
+            max-height: 400px;
+            overflow-y: auto;
+            padding: 10px;
+        }
+        .message { margin-bottom: 16px; display: flex; }
+        .message.user { justify-content: flex-end; }
+        .message.assistant { justify-content: flex-start; }
+        .message .bubble {
+            max-width: 75%;
+            padding: 12px 16px;
+            border-radius: 16px;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        .message.user .bubble {
+            background: var(--primary-color);
+            color: #fff;
+            border-bottom-right-radius: 4px;
+        }
+        .message.assistant .bubble {
+            background: #e9ecef;
+            color: #212529;
+            border-bottom-left-radius: 4px;
+        }
+        .message .sources {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 4px;
+            cursor: pointer;
+        }
+        .message .sources:hover { color: var(--primary-color); }
+        .typing-indicator { display: flex; gap: 4px; padding: 8px 0; }
+        .typing-indicator span {
+            width: 8px; height: 8px;
+            background: #6c757d;
+            border-radius: 50%;
+            animation: typing 1.4s infinite both;
+        }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-10px); }
+        }
+        .status-badge {
+            font-size: 12px;
+            padding: 3px 10px;
+            border-radius: 20px;
+        }
+        .status-completed { background: var(--success-color); color: white; }
+        .status-pending { background: #ffc107; color: #000; }
+        .status-processing { background: #17a2b8; color: white; }
+        .status-failed { background: var(--danger-color); color: white; }
+        .back-btn {
+            color: #a0a0b8;
+            text-decoration: none;
+            transition: all 0.3s;
+        }
+        .back-btn:hover {
+            color: white;
+        }
+        .doc-card {
+            transition: all 0.2s;
+        }
+        .doc-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== NAVBAR ===== -->
+    <nav class="navbar-custom d-flex justify-content-between align-items-center">
+        <div>
+            <a href="dashboard.html" class="back-btn me-3">
+                <i class="fas fa-arrow-right"></i> بازگشت
+            </a>
+            <span class="brand"><i class="fas fa-brain"></i> Graph-RAG</span>
+        </div>
+        <div class="session-title">
+            <i class="fas fa-comments me-1"></i>
+            جلسه: <span id="sessionTitle">بارگذاری...</span>
+            <span class="badge bg-primary ms-2" id="sessionIdBadge">ID: 0</span>
+        </div>
+        <div>
+            <span class="text-secondary small me-2" id="userNameDisplay">کاربر</span>
+            <button class="btn btn-danger btn-sm" onclick="logout()">
+                <i class="fas fa-sign-out-alt"></i>
+            </button>
+        </div>
+    </nav>
+
+    <div class="container-fluid p-4">
+        <div class="row">
+
+            <!-- ===== ستون چپ: آپلود و اسناد ===== -->
+            <div class="col-lg-4">
+
+                <!-- ===== کارت: آپلود فایل ===== -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-upload text-primary me-2"></i> آپلود فایل
+                    </div>
+                    <div class="card-body">
+                        <div class="drop-zone" id="dropZone">
+                            <i class="fas fa-cloud-upload-alt fa-3x text-primary mb-2"></i>
+                            <p class="mb-1">فایل‌های PDF را بکشید و رها کنید</p>
+                            <small class="text-muted">یا کلیک کنید تا انتخاب کنید</small>
+                            <input type="file" id="fileInput" multiple accept=".pdf" class="d-none">
+                            <button class="btn btn-primary btn-sm mt-2" onclick="document.getElementById('fileInput').click()">
+                                <i class="fas fa-folder-open me-1"></i> انتخاب فایل
+                            </button>
+                            <div id="fileList" class="mt-2"></div>
+                        </div>
+                        <button class="btn btn-success w-100 mt-2" id="uploadBtn" disabled>
+                            <i class="fas fa-upload me-1"></i> آپلود در این سشن
+                        </button>
+                        <div id="uploadProgress" class="mt-2 d-none">
+                            <div class="progress"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:0%"></div></div>
+                            <small class="text-muted" id="uploadStatus">در حال آپلود...</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===== کارت: اسناد این سشن ===== -->
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-file-pdf text-danger me-2"></i> اسناد این جلسه</span>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="loadDocuments()">
+                            <i class="fas fa-sync"></i>
+                        </button>
+                    </div>
+                    <div class="card-body" id="documentsList" style="max-height:300px;overflow-y:auto;">
+                        <div class="text-center text-muted py-3">
+                            <i class="fas fa-spinner fa-spin"></i> در حال بارگذاری...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== ستون راست: چت ===== -->
+            <div class="col-lg-8">
+
+                <!-- ===== کارت: چت هوش مصنوعی ===== -->
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-comment-dots text-success me-2"></i> چت هوش مصنوعی</span>
+                        <span class="badge bg-success" id="chatStatus">آماده</span>
+                    </div>
+                    <div class="card-body chat-container" id="chatContainer">
+                        <div id="chatMessages">
+                            <div class="text-center text-muted py-4">
+                                <i class="fas fa-robot fa-3x mb-2 d-block"></i>
+                                از اسناد این جلسه سوال بپرسید
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-light">
+                        <div class="row g-2">
+                            <div class="col-9">
+                                <input type="text" class="form-control" id="questionInput" placeholder="سوال خود را بنویسید...">
+                            </div>
+                            <div class="col-3">
+                                <button class="btn btn-success w-100" id="askBtn">
+                                    <i class="fas fa-paper-plane me-1"></i> بپرس
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <button class="btn btn-outline-secondary btn-sm me-1" onclick="setQuestion('این مقاله درباره چیست؟')">📄 موضوع</button>
+                            <button class="btn btn-outline-secondary btn-sm me-1" onclick="setQuestion('چه روش‌هایی استفاده شده؟')">🔬 روش‌ها</button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="setQuestion('نتایج اصلی چیست؟')">📊 نتایج</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===== کارت: تاریخچه سوالات این سشن ===== -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-history text-info me-2"></i> تاریخچه سوالات این جلسه
+                    </div>
+                    <div class="card-body" id="historyList" style="max-height:200px;overflow-y:auto;">
+                        <div class="text-center text-muted py-2">
+                            <i class="fas fa-spinner fa-spin"></i> در حال بارگذاری...
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== TOAST ===== -->
+    <div class="position-fixed bottom-0 end-0 p-3" style="z-index:9999;">
+        <div id="toast" class="toast" role="alert">
+            <div class="toast-header">
+                <strong class="me-auto" id="toastTitle">اطلاعیه</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="toastMessage">پیام</div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // ============================================================
+        //  CONFIG
+        // ============================================================
+        const API_URL = 'http://localhost:8000/api';
+        const SESSION_ID = parseInt(new URLSearchParams(window.location.search).get('id')) || 1;
+        const TOKEN = localStorage.getItem('api_token') || '';
+
+        // ============================================================
+        //  HELPERS
+        // ============================================================
+        function showToast(title, message, type = 'info') {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastTitle').textContent = title;
+            document.getElementById('toastMessage').textContent = message;
+            toast.className = `toast bg-${type} text-white`;
+            new bootstrap.Toast(toast).show();
+        }
+
+        function getHeaders() {
+            return {
+                'Authorization': `Bearer ${TOKEN}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            };
+        }
+
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / 1048576).toFixed(1) + ' MB';
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleString('fa-IR');
+        }
+
+        // ============================================================
+        //  USER
+        // ============================================================
+        document.getElementById('userNameDisplay').textContent = localStorage.getItem('user_name') || 'کاربر';
+
+        function logout() {
+            localStorage.clear();
+            window.location.href = 'login.html';
+        }
+
+        // ============================================================
+        //  LOAD SESSION INFO
+        // ============================================================
+        async function loadSessionInfo() {
+            try {
+                const res = await fetch(`${API_URL}/sessions/${SESSION_ID}`, {
+                    headers: getHeaders()
+                });
+                const data = await res.json();
+                const session = data.session || data;
+                document.getElementById('sessionTitle').textContent = session.title || 'بدون عنوان';
+                document.getElementById('sessionIdBadge').textContent = `ID: ${SESSION_ID}`;
+            } catch (e) {
+                document.getElementById('sessionTitle').textContent = 'خطا در بارگذاری';
+            }
+        }
+
+        // ============================================================
+        //  DOCUMENTS
+        // ============================================================
+        async function loadDocuments() {
+            const container = document.getElementById('documentsList');
+            try {
+                const res = await fetch(`${API_URL}/sessions/${SESSION_ID}/documents`, {
+                    headers: getHeaders()
+                });
+                const data = await res.json();
+                const docs = data.documents || data.data || [];
+
+                if (!docs.length) {
+                    container.innerHTML = `
+                        <div class="text-center text-muted py-3">
+                            <i class="fas fa-file-pdf fa-2x mb-2 d-block"></i>
+                            هیچ سندی در این جلسه وجود ندارد
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = docs.map(d => `
+                    <div class="doc-card border-bottom py-2 d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="fas fa-file-pdf text-danger me-1"></i>
+                            <span class="small">${d.original_name || d.name || 'بدون نام'}</span>
+                            <span class="badge ${d.processing_status === 'completed' ? 'status-completed' : 'status-pending'} ms-1">
+                                ${d.processing_status || 'pending'}
+                            </span>
+                            <br>
+                            <small class="text-muted">📄 ${d.page_count || 0} صفحه • ${formatSize(d.file_size || 0)}</small>
+                        </div>
+                        <button class="btn btn-sm btn-outline-primary" onclick="askAboutDoc(${d.id})">
+                            <i class="fas fa-question"></i>
+                        </button>
+                    </div>
+                `).join('');
+
+            } catch (e) {
+                container.innerHTML = `<div class="alert alert-danger">خطا: ${e.message}</div>`;
+            }
+        }
+
+        function askAboutDoc(id) {
+            setQuestion(`در مورد سند شماره ${id} توضیح بده`);
+            document.getElementById('questionInput').focus();
+        }
+
+        // ============================================================
+        //  UPLOAD
+        // ============================================================
+        let selectedFiles = [];
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+
+        dropZone.addEventListener('dragover', e => { e.preventDefault();
+            dropZone.classList.add('dragover'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+        fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+        function handleFiles(files) {
+            const valid = Array.from(files).filter(f => f.type === 'application/pdf');
+            if (!valid.length) { showToast('خطا', 'فایل PDF معتبر انتخاب کنید', 'danger'); return; }
+            selectedFiles = [...selectedFiles, ...valid];
+            renderFileList();
+            document.getElementById('uploadBtn').disabled = false;
+        }
+
+        function renderFileList() {
+            const container = document.getElementById('fileList');
+            if (!selectedFiles.length) { container.innerHTML = ''; return; }
+            container.innerHTML = selectedFiles.map((f, i) => `
+                <div class="file-item">
+                    <div>
+                        <span class="small">${f.name}</span>
+                        <span class="text-muted small ms-1">${formatSize(f.size)}</span>
+                    </div>
+                    <button class="remove-file" onclick="removeFile(${i})"><i class="fas fa-times"></i></button>
+                </div>
+            `).join('');
+        }
+
+        function removeFile(i) {
+            selectedFiles.splice(i, 1);
+            renderFileList();
+            if (!selectedFiles.length) document.getElementById('uploadBtn').disabled = true;
+        }
+
+        document.getElementById('uploadBtn').addEventListener('click', async function() {
+            if (!selectedFiles.length) return;
+            const btn = this;
+            const progress = document.getElementById('uploadProgress');
+            const bar = progress.querySelector('.progress-bar');
+            const status = document.getElementById('uploadStatus');
+
+            btn.disabled = true;
+            progress.classList.remove('d-none');
+            bar.style.width = '0%';
+            status.textContent = '⏳ در حال آپلود...';
+
+            const formData = new FormData();
+            selectedFiles.forEach(f => formData.append('files[]', f));
+
+            try {
+                const res = await fetch(`${API_URL}/documents/upload/sessions/${SESSION_ID}/users/${localStorage.getItem('user_id') || 1}`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${TOKEN}` },
+                    body: formData
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast('موفق', 'فایل‌ها آپلود شدند', 'success');
+                    selectedFiles = [];
+                    renderFileList();
+                    btn.disabled = true;
+                    bar.style.width = '100%';
+                    status.textContent = '✅ کامل';
+                    loadDocuments();
+                } else {
+                    showToast('خطا', data.message || 'خطا در آپلود', 'danger');
+                    status.textContent = '❌ خطا';
+                }
+            } catch (e) {
+                showToast('خطا', 'مشکل در ارتباط با سرور', 'danger');
+                status.textContent = '❌ خطا';
+            }
+
+            setTimeout(() => {
+                progress.classList.add('d-none');
+                bar.style.width = '0%';
+                btn.disabled = false;
+            }, 3000);
+        });
+
+        // ============================================================
+        //  CHAT
+        // ============================================================
+        let currentQId = null;
+        let pollInterval = null;
+        let typingMessage = null;
+
+        document.getElementById('askBtn').addEventListener('click', askQuestion);
+        document.getElementById('questionInput').addEventListener('keypress', e => { if (e.key === 'Enter') askQuestion(); });
+
+        function setQuestion(text) { document.getElementById('questionInput').value = text; }
+
+        function addMessage(role, content, isTyping = false) {
+            const container = document.getElementById('chatMessages');
+            const emptyMsg = container.querySelector('.text-center.text-muted');
+            if (emptyMsg) emptyMsg.remove();
+
+            const msg = document.createElement('div');
+            msg.className = `message ${role}`;
+            if (isTyping) {
+                msg.innerHTML = `<div class="bubble"><div class="typing-indicator"><span></span><span></span><span></span></div></div>`;
+                typingMessage = msg;
+            } else {
+                msg.innerHTML = `<div class="bubble">${String(content).replace(/\n/g, '<br>')}</div>`;
+            }
+            container.appendChild(msg);
+            container.scrollTop = container.scrollHeight;
+            return msg;
+        }
+
+        function removeTyping() {
+            if (typingMessage && typingMessage.parentNode) {
+                typingMessage.remove();
+                typingMessage = null;
+            }
+        }
+
+        async function askQuestion() {
+            const input = document.getElementById('questionInput');
+            const q = input.value.trim();
+            if (!q) { showToast('توجه', 'سوال خود را وارد کنید', 'warning'); return; }
+            input.value = '';
+            addMessage('user', q);
+            addMessage('assistant', '', true);
+
+            try {
+                const res = await fetch(`${API_URL}/sessions/${SESSION_ID}/search`, {
+                    method: 'POST',
+                    headers: getHeaders(),
+                    body: JSON.stringify({ content: q })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    removeTyping();
+                    addMessage('assistant', `❌ خطا: ${data.message || 'مشکل در پردازش'}`);
+                    return;
+                }
+                currentQId = data.question_id;
+                if (pollInterval) clearInterval(pollInterval);
+                pollInterval = setInterval(checkStatus, 3000);
+            } catch (e) {
+                removeTyping();
+                addMessage('assistant', `❌ خطا در ارتباط: ${e.message}`);
+            }
+        }
+
+        async function checkStatus() {
+            if (!currentQId) return;
+            try {
+                const res = await fetch(`${API_URL}/questions/${currentQId}/status`, { headers: getHeaders() });
+                const data = await res.json();
+                if (data.is_completed) {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    await getResult();
+                }
+            } catch (e) { console.error('Status check error:', e); }
+        }
+
+        async function getResult() {
+            try {
+                const res = await fetch(`${API_URL}/questions/${currentQId}/result`, { 
+                    headers: getHeaders() 
+                });
+                const data = await res.json();
+                removeTyping();
+                
+                // ===== اینجا data.answer را نمایش دهید =====
+                if (data.answer) {
+                    let srcHtml = '';
+                    if (data.sources && data.sources.length) {
+                        srcHtml = `<div class="sources" onclick="showSources(${JSON.stringify(data.sources).replace(/"/g,'&quot;')})">📚 ${data.sources.length} منبع</div>`;
+                    }
+                    addMessage('assistant', data.answer + srcHtml);
+                    loadHistory();
+                } else if (data.status === 'failed') {
+                    addMessage('assistant', `❌ خطا: ${data.error || 'پاسخی دریافت نشد'}`);
+                } else {
+                    addMessage('assistant', '❌ پاسخی دریافت نشد');
+                }
+                currentQId = null;
+            } catch (e) {
+                removeTyping();
+                addMessage('assistant', `❌ خطا: ${e.message}`);
+            }
+        }
+
+        function showSources(sources) {
+            let html = '<div class="p-2">📚 <strong>منابع:</strong><ul class="mb-0 mt-1">';
+            sources.forEach(s => html += `<li class="text-muted small">سند ${s.document_id}</li>`);
+            html += '</ul></div>';
+            showToast('منابع', html, 'info');
+        }
+
+        // ============================================================
+        //  HISTORY
+        // ============================================================
+        async function loadHistory() {
+            const container = document.getElementById('historyList');
+            try {
+                const res = await fetch(`${API_URL}/sessions/${SESSION_ID}`, { headers: getHeaders() });
+                const data = await res.json();
+                const questions = data.questions || [];
+
+                if (!questions.length) {
+                    container.innerHTML = `<div class="text-center text-muted py-2">هنوز سوالی پرسیده نشده است</div>`;
+                    return;
+                }
+
+                container.innerHTML = questions.map(q => `
+                    <div class="border-bottom py-1 d-flex justify-content-between align-items-center">
+                        <div class="small">
+                            <span class="fw-bold">${q.content}</span>
+                            ${q.status === 'completed' ? `<span class="badge status-completed ms-1">✅</span>` : `<span class="badge status-pending ms-1">⏳</span>`}
+                        </div>
+                        <small class="text-muted">${formatDate(q.created_at)}</small>
+                    </div>
+                `).join('');
+
+            } catch (e) {
+                container.innerHTML = `<div class="text-danger small">خطا: ${e.message}</div>`;
+            }
+        }
+
+        // ============================================================
+        //  INIT
+        // ============================================================
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!TOKEN) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            loadSessionInfo();
+            loadDocuments();
+            loadHistory();
+
+            setTimeout(() => {
+                addMessage('assistant', '👋 سلام! من دستیار هوشمند Graph-RAG هستم.\n\n📄 می‌توانید فایل‌های PDF را در این جلسه آپلود کنید و هر سوالی درباره آنها بپرسید.');
+            }, 500);
+        });
+    </script>
+</body>
+</html>

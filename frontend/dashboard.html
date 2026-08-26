@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph-RAG | داشبورد</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-color: #6c5ce7;
+            --success-color: #00b894;
+            --danger-color: #e17055;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+        }
+        .navbar-custom {
+            background: #1a1a2e;
+            padding: 12px 24px;
+        }
+        .navbar-custom .brand {
+            color: white;
+            font-weight: 700;
+            font-size: 20px;
+        }
+        .navbar-custom .brand i {
+            color: var(--primary-color);
+        }
+        .card {
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            border: none;
+            margin-bottom: 20px;
+        }
+        .card-header {
+            background: white;
+            border-bottom: 1px solid #f0f2f5;
+            font-weight: 600;
+            padding: 16px 20px;
+        }
+        .session-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 18px;
+            border-radius: 10px;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: 1px solid #f0f2f5;
+            margin-bottom: 8px;
+            background: white;
+        }
+        .session-item:hover {
+            background: rgba(108, 92, 231, 0.05);
+            border-color: var(--primary-color);
+            transform: translateX(-4px);
+        }
+        .session-item .session-actions {
+            display: none;
+        }
+        .session-item:hover .session-actions {
+            display: flex;
+            gap: 6px;
+        }
+        .btn-enter {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 6px 16px;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .btn-enter:hover {
+            background: #5a4bd1;
+            color: white;
+        }
+        .btn-enter i {
+            margin-left: 4px;
+        }
+        .toast-container { z-index: 9999; }
+        .session-title {
+            font-weight: 600;
+        }
+        .session-meta {
+            font-size: 13px;
+            color: #6c757d;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+        }
+        .empty-state i {
+            font-size: 48px;
+            color: #dee2e6;
+            margin-bottom: 16px;
+        }
+        .empty-state h5 {
+            color: #495057;
+            margin-bottom: 8px;
+        }
+        .empty-state p {
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== NAVBAR ===== -->
+    <nav class="navbar-custom d-flex justify-content-between align-items-center">
+        <div>
+            <span class="brand"><i class="fas fa-brain"></i> Graph-RAG</span>
+        </div>
+        <div>
+            <span class="text-secondary small me-2" id="userNameDisplay">کاربر</span>
+            <button class="btn btn-danger btn-sm" onclick="logout()">
+                <i class="fas fa-sign-out-alt"></i>
+            </button>
+        </div>
+    </nav>
+
+    <div class="container p-4">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+
+                <!-- ===== HEADER ===== -->
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3><i class="fas fa-comments text-primary me-2"></i> جلسات من</h3>
+                    <button class="btn btn-primary" id="newSessionBtn">
+                        <i class="fas fa-plus me-1"></i> جلسه جدید
+                    </button>
+                </div>
+
+                <!-- ===== FORM: ایجاد جلسه جدید ===== -->
+                <div id="newSessionForm" class="card shadow-sm mb-4 d-none">
+                    <div class="card-body">
+                        <div class="row g-2">
+                            <div class="col-8">
+                                <input type="text" class="form-control" id="newSessionTitle" placeholder="عنوان جلسه جدید...">
+                            </div>
+                            <div class="col-4">
+                                <button class="btn btn-success w-100" id="saveSessionBtn">
+                                    <i class="fas fa-save me-1"></i> ایجاد
+                                </button>
+                            </div>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary mt-2" id="cancelSessionBtn">لغو</button>
+                    </div>
+                </div>
+
+                <!-- ===== LIST: جلسات ===== -->
+                <div id="sessionsList">
+                    <div class="empty-state">
+                        <i class="fas fa-comments"></i>
+                        <h5>هیچ جلسه‌ای وجود ندارد</h5>
+                        <p class="text-muted">اولین جلسه خود را ایجاد کنید</p>
+                        <button class="btn btn-primary btn-sm mt-2" onclick="showNewSessionForm()">
+                            <i class="fas fa-plus me-1"></i> ایجاد جلسه جدید
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== TOAST ===== -->
+    <div class="position-fixed bottom-0 end-0 p-3 toast-container">
+        <div id="toast" class="toast" role="alert">
+            <div class="toast-header">
+                <strong class="me-auto" id="toastTitle">اطلاعیه</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="toastMessage">پیام</div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // ============================================================
+        //  CONFIG
+        // ============================================================
+        const API_URL = 'http://localhost:8000/api';
+        const TOKEN = localStorage.getItem('api_token') || '';
+
+        // ============================================================
+        //  HELPERS
+        // ============================================================
+        function showToast(title, message, type = 'info') {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastTitle').textContent = title;
+            document.getElementById('toastMessage').textContent = message;
+            toast.className = `toast bg-${type} text-white`;
+            new bootstrap.Toast(toast).show();
+        }
+
+        function getHeaders() {
+            return {
+                'Authorization': `Bearer ${TOKEN}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            };
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleString('fa-IR');
+        }
+
+        // ============================================================
+        //  USER
+        // ============================================================
+        document.getElementById('userNameDisplay').textContent = localStorage.getItem('user_name') || 'کاربر';
+
+        function logout() {
+            localStorage.clear();
+            window.location.href = 'login.html';
+        }
+
+        // ============================================================
+        //  SESSIONS
+        // ============================================================
+        function showNewSessionForm() {
+            document.getElementById('newSessionForm').classList.remove('d-none');
+            document.getElementById('newSessionTitle').focus();
+        }
+
+        document.getElementById('newSessionBtn').addEventListener('click', showNewSessionForm);
+        
+        document.getElementById('cancelSessionBtn').addEventListener('click', function() {
+            document.getElementById('newSessionForm').classList.add('d-none');
+            document.getElementById('newSessionTitle').value = '';
+        });
+
+        // ===== CREATE SESSION =====
+        document.getElementById('saveSessionBtn').addEventListener('click', async function() {
+            const title = document.getElementById('newSessionTitle').value.trim();
+            if (!title) {
+                showToast('توجه', 'لطفاً عنوان جلسه را وارد کنید', 'warning');
+                return;
+            }
+
+            const btn = this;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>';
+
+            try {
+                const res = await fetch(`${API_URL}/sessions/create/${localStorage.getItem('user_id') || 1}`, {
+                    method: 'POST',
+                    headers: getHeaders(),
+                    body: JSON.stringify({ title, status: 'active' })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast('موفق', 'جلسه جدید ایجاد شد', 'success');
+                    document.getElementById('newSessionForm').classList.add('d-none');
+                    document.getElementById('newSessionTitle').value = '';
+                    await loadSessions();
+                } else {
+                    showToast('خطا', data.message || 'خطا در ایجاد جلسه', 'danger');
+                }
+            } catch (e) {
+                showToast('خطا', 'مشکل در ارتباط با سرور', 'danger');
+            }
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-save me-1"></i> ایجاد';
+        });
+
+        // ===== GET SESSIONS =====
+        async function loadSessions() {
+            const container = document.getElementById('sessionsList');
+            try {
+                if (!TOKEN) {
+                    container.innerHTML = `
+                        <div class="alert alert-warning">
+                            ⚠️ لطفاً ابتدا <a href="login.html">وارد شوید</a>
+                        </div>
+                    `;
+                    return;
+                }
+
+                const res = await fetch(`${API_URL}/sessions`, { 
+                    headers: getHeaders()
+                });
+                if (!res.ok) throw new Error('Failed to load sessions');
+                const data = await res.json();
+                const sessions = data.sessions || data.data || [];
+
+                if (!sessions.length) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-comments"></i>
+                            <h5>هیچ جلسه‌ای وجود ندارد</h5>
+                            <p class="text-muted">اولین جلسه خود را ایجاد کنید</p>
+                            <button class="btn btn-primary btn-sm mt-2" onclick="showNewSessionForm()">
+                                <i class="fas fa-plus me-1"></i> ایجاد جلسه جدید
+                            </button>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = sessions.map(s => `
+                    <div class="session-item" onclick="window.location.href='session.html?id=${s.id}'">
+                        <div>
+                            <div class="session-title">${s.title || 'بدون عنوان'}</div>
+                            <div class="session-meta">
+                                <span class="badge bg-secondary">${s.status || 'active'}</span>
+                                <span class="ms-2">${formatDate(s.created_at)}</span>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <button class="btn-enter" onclick="event.stopPropagation(); window.location.href='session.html?id=${s.id}'">
+                                ورود <i class="fas fa-arrow-left"></i>
+                            </button>
+                            <div class="session-actions">
+                                <button class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); editSession(${s.id}, '${s.title || ''}')">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation(); deleteSession(${s.id})">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+
+            } catch (e) {
+                console.error('Error loading sessions:', e);
+                container.innerHTML = `<div class="alert alert-danger">خطا: ${e.message}</div>`;
+            }
+        }
+
+        // ===== EDIT SESSION =====
+        function editSession(id, title) {
+            const newTitle = prompt('عنوان جدید جلسه را وارد کنید:', title);
+            if (!newTitle || newTitle === title) return;
+
+            fetch(`${API_URL}/sessions/${id}/update`, {
+                method: 'PATCH',
+                headers: getHeaders(),
+                body: JSON.stringify({ title: newTitle })
+            })
+            .then(res => {
+                if (res.ok) {
+                    showToast('موفق', 'جلسه به‌روزرسانی شد', 'success');
+                    loadSessions();
+                } else {
+                    res.json().then(data => showToast('خطا', data.message || 'خطا در به‌روزرسانی', 'danger'));
+                }
+            })
+            .catch(() => showToast('خطا', 'مشکل در ارتباط با سرور', 'danger'));
+        }
+
+        // ===== DELETE SESSION =====
+        async function deleteSession(id) {
+            if (!confirm(`آیا از حذف جلسه "${id}" مطمئن هستید؟`)) return;
+
+            try {
+                const res = await fetch(`${API_URL}/sessions/${id}/delete`, {
+                    method: 'DELETE',
+                    headers: getHeaders()
+                });
+                if (res.ok) {
+                    showToast('موفق', 'جلسه حذف شد', 'success');
+                    loadSessions();
+                } else {
+                    const data = await res.json();
+                    showToast('خطا', data.message || 'خطا در حذف', 'danger');
+                }
+            } catch (e) {
+                showToast('خطا', 'مشکل در ارتباط با سرور', 'danger');
+            }
+        }
+
+        // ============================================================
+        //  INIT
+        // ============================================================
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!TOKEN) {
+                window.location.href = 'login.html';
+                return;
+            }
+            loadSessions();
+        });
+    </script>
+</body>
+</html>
