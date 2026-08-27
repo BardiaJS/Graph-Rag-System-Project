@@ -29,5 +29,12 @@ Route::get('/sessions'  ,[SessionController::class, 'sessions'])->middleware('au
 Route::post('/sessions/{session}/search' , [DocumentController::class, 'search'])->middleware('auth:sanctum');
 Route::post('webhook/document-processed', [WebhookController::class, 'handle']);
 Route::post('/documents/upload/sessions/{session}/users/{user}' , [DocumentController::class , 'upload_document'])->middleware('auth:sanctum');
+
+Route::delete('/documents/{document}/delete' , [DocumentController::class, 'delete'])->middleware('auth:sanctum');
 Route::get('/documents/{document}' , [DocumentController::class, 'get_document'])->middleware('auth:sanctum');
-Route::get('/documents' , [DocumentController::class, 'documents'])->middleware('auth:sanctum');
+Route::get('/sessions/{session}/documents' , [DocumentController::class, 'documents'])->middleware('auth:sanctum');
+
+
+// ===== Questions =====
+Route::get('/questions/{question}/result', [DocumentController::class, 'getResult'])->middleware('auth:sanctum');
+Route::get('/questions/{question}/status', [DocumentController::class, 'getStatus'])->middleware('auth:sanctum');

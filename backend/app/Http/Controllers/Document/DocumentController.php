@@ -75,7 +75,7 @@ class DocumentController extends Controller
     /**
      * دریافت همه اسناد کاربر (بدون فیلتر Session)
      */
-    public function documents()
+    public function documents(ChatSession $session)
     {
         $user = Auth::user();
         
@@ -85,7 +85,7 @@ class DocumentController extends Controller
             ], 401);
         }
 
-        $documents = Document::where('user_id', $user->id)
+        $documents = Document::where('chat_session_id', $session->id)
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -375,5 +375,38 @@ class DocumentController extends Controller
         }
 
         return response()->json(['message' => 'Webhook received'], 200);
+    }
+
+
+    public function delete(Document $document)
+    {
+        $user = Auth::user();
+        
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated'
+            ], 401);
+        }
+
+        $session = ChatSession::find($document->chat_session_id);
+        
+        // is document for the user or not? 
+        if (!$session || $session->user_id !== $user->id) {
+            return response()->json([
+                'message' => 'You do not have permission to delete this document'
+            ], 403);
+        }
+
+        $filePath = storage_path('app/public/' . $document->file_path);
+        if (file_exists($filePath)) {
+            unlink($filePath);
+        }
+
+        $document->delete();
+
+        return response()->json([
+            'message' => 'Document deleted successfully',
+            'document_id' => $document->id
+        ], 200);
     }
 }

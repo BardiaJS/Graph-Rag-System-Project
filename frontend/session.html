@@ -1,268 +1,1085 @@
 <!DOCTYPE html>
-<html lang="fa" dir="rtl">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Graph-RAG | سشن</title>
+    <title>Graph-RAG · Session</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         :root {
-            --primary-color: #6c5ce7;
-            --success-color: #00b894;
-            --danger-color: #e17055;
+            --primary: #7c3aed;
+            --primary-light: #a78bfa;
+            --primary-dark: #5b21b6;
+            --success: #10b981;
+            --danger: #ef4444;
+            --bg-start: #0f0c29;
+            --bg-mid: #302b63;
+            --bg-end: #24243e;
         }
+
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f0f2f5;
+            font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg-start);
             min-height: 100vh;
+            color: #f0f0ff;
         }
-        .navbar-custom {
-            background: #1a1a2e;
-            padding: 12px 24px;
+
+        /* ===== SPECULAR BUTTON - LOGOUT ===== */
+        .specular-button-logout {
+            --sb-radius: 10px;
+            --sb-tint: #ef4444;
+            --sb-tint-opacity: 0.12;
+            --sb-blur: 0px;
+            --sb-text-color: #fca5a5;
+
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(239, 68, 68, 0.15);
+            margin: 0;
+            font-family: inherit;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+            line-height: 1;
+            color: var(--sb-text-color);
+            background: color-mix(in srgb, var(--sb-tint) calc(var(--sb-tint-opacity) * 100%), transparent);
+            border-radius: var(--sb-radius);
+            backdrop-filter: blur(var(--sb-blur));
+            -webkit-backdrop-filter: blur(var(--sb-blur));
+            cursor: pointer;
+            outline: none;
+            transition: all 0.25s ease;
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            text-decoration: none;
+            overflow: hidden;
         }
-        .navbar-custom .brand {
-            color: white;
-            font-weight: 700;
-            font-size: 20px;
+
+        .specular-button-logout:hover {
+            background: rgba(239, 68, 68, 0.25);
+            border-color: #ef4444;
+            color: #fff;
         }
-        .navbar-custom .brand i {
-            color: var(--primary-color);
+
+        .specular-button-logout .shine {
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(
+                circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+                rgba(255, 255, 255, 0.15) 0%,
+                transparent 70%
+            );
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            border-radius: var(--sb-radius);
         }
-        .navbar-custom .session-title {
-            color: #a0a0b8;
-            font-size: 14px;
+
+        .specular-button-logout:hover .shine {
+            opacity: 1;
         }
-        .navbar-custom .session-title span {
-            color: white;
-            font-weight: 600;
+
+        .specular-button-logout__label {
+            position: relative;
+            z-index: 2;
         }
-        .card {
-            border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+
+        /* ===== SPECULAR BUTTON - PRIMARY ===== */
+        .specular-button-primary {
+            --sb-radius: 10px;
+            --sb-tint: #ffffff;
+            --sb-tint-opacity: 0;
+            --sb-blur: 0px;
+            --sb-text-color: #f5f5f5;
+
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             border: none;
-            margin-bottom: 20px;
+            margin: 0;
+            font-family: inherit;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+            line-height: 1;
+            color: var(--sb-text-color);
+            background: linear-gradient(135deg, #7c3aed, #6366f1);
+            border-radius: var(--sb-radius);
+            backdrop-filter: blur(var(--sb-blur));
+            -webkit-backdrop-filter: blur(var(--sb-blur));
+            box-shadow: 0 4px 16px -4px rgba(99, 102, 241, 0.3);
+            cursor: pointer;
+            outline: none;
+            transition: all 0.25s ease;
+            padding: 8px 18px;
+            font-size: 0.85rem;
+            text-decoration: none;
+            overflow: hidden;
+            color: #fff;
         }
-        .card-header {
-            background: white;
-            border-bottom: 1px solid #f0f2f5;
+
+        .specular-button-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px -6px rgba(99, 102, 241, 0.5);
+            background: linear-gradient(135deg, #8b5cf6, #818cf8);
+            color: #fff;
+        }
+
+        .specular-button-primary:active {
+            transform: scale(0.97);
+        }
+
+        .specular-button-primary .shine {
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(
+                circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+                rgba(255, 255, 255, 0.25) 0%,
+                rgba(255, 255, 255, 0.05) 40%,
+                transparent 70%
+            );
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            border-radius: var(--sb-radius);
+        }
+
+        .specular-button-primary:hover .shine {
+            opacity: 1;
+        }
+
+        .specular-button-primary .glow-line {
+            position: absolute;
+            inset: 0;
+            border-radius: var(--sb-radius);
+            padding: 1.5px;
+            background: linear-gradient(
+                135deg,
+                rgba(255, 255, 255, 0.2) 0%,
+                rgba(255, 255, 255, 0) 30%,
+                rgba(255, 255, 255, 0) 70%,
+                rgba(255, 255, 255, 0.1) 100%
+            );
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask-composite: exclude;
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        .specular-button-primary__label {
+            position: relative;
+            z-index: 2;
+        }
+
+        /* ===== SPECULAR BUTTON - SUCCESS ===== */
+        .specular-button-success {
+            --sb-radius: 10px;
+            --sb-tint: #ffffff;
+            --sb-tint-opacity: 0;
+            --sb-blur: 0px;
+            --sb-text-color: #f5f5f5;
+
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            margin: 0;
+            width: 100%;
+            font-family: inherit;
             font-weight: 600;
-            padding: 16px 20px;
+            letter-spacing: 0.01em;
+            line-height: 1;
+            color: var(--sb-text-color);
+            background: linear-gradient(135deg, #059669, #10b981);
+            border-radius: var(--sb-radius);
+            backdrop-filter: blur(var(--sb-blur));
+            -webkit-backdrop-filter: blur(var(--sb-blur));
+            box-shadow: 0 4px 16px -4px rgba(16, 185, 129, 0.3);
+            cursor: pointer;
+            outline: none;
+            transition: all 0.25s ease;
+            padding: 10px;
+            font-size: 0.9rem;
+            text-decoration: none;
+            overflow: hidden;
+            color: #fff;
         }
+
+        .specular-button-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px -6px rgba(16, 185, 129, 0.5);
+            background: linear-gradient(135deg, #10b981, #34d399);
+            color: #fff;
+        }
+
+        .specular-button-success:active {
+            transform: scale(0.97);
+        }
+
+        .specular-button-success .shine {
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(
+                circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+                rgba(255, 255, 255, 0.25) 0%,
+                rgba(255, 255, 255, 0.05) 40%,
+                transparent 70%
+            );
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            border-radius: var(--sb-radius);
+        }
+
+        .specular-button-success:hover .shine {
+            opacity: 1;
+        }
+
+        .specular-button-success .glow-line {
+            position: absolute;
+            inset: 0;
+            border-radius: var(--sb-radius);
+            padding: 1.5px;
+            background: linear-gradient(
+                135deg,
+                rgba(255, 255, 255, 0.2) 0%,
+                rgba(255, 255, 255, 0) 30%,
+                rgba(255, 255, 255, 0) 70%,
+                rgba(255, 255, 255, 0.1) 100%
+            );
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask-composite: exclude;
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        .specular-button-success__label {
+            position: relative;
+            z-index: 2;
+        }
+
+        .specular-button-success .spinner-border {
+            position: relative;
+            z-index: 2;
+        }
+
+        /* ===== SPECULAR BUTTON - DANGER (Delete) ===== */
+        .specular-button-danger {
+            --sb-radius: 8px;
+            --sb-tint: #ffffff;
+            --sb-tint-opacity: 0;
+            --sb-blur: 0px;
+            --sb-text-color: #f5f5f5;
+
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            margin: 0;
+            font-family: inherit;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+            line-height: 1;
+            color: var(--sb-text-color);
+            background: linear-gradient(135deg, #dc2626, #ef4444);
+            border-radius: var(--sb-radius);
+            backdrop-filter: blur(var(--sb-blur));
+            -webkit-backdrop-filter: blur(var(--sb-blur));
+            box-shadow: 0 4px 12px -4px rgba(239, 68, 68, 0.3);
+            cursor: pointer;
+            outline: none;
+            transition: all 0.25s ease;
+            padding: 4px 10px;
+            font-size: 0.7rem;
+            text-decoration: none;
+            overflow: hidden;
+            color: #fff;
+        }
+
+        .specular-button-danger:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 20px -6px rgba(239, 68, 68, 0.5);
+            background: linear-gradient(135deg, #ef4444, #f87171);
+            color: #fff;
+        }
+
+        .specular-button-danger:active {
+            transform: scale(0.95);
+        }
+
+        .specular-button-danger .shine {
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(
+                circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+                rgba(255, 255, 255, 0.25) 0%,
+                rgba(255, 255, 255, 0.05) 40%,
+                transparent 70%
+            );
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            border-radius: var(--sb-radius);
+        }
+
+        .specular-button-danger:hover .shine {
+            opacity: 1;
+        }
+
+        .specular-button-danger__label {
+            position: relative;
+            z-index: 2;
+        }
+
+        /* ===== SPECULAR BUTTON - SEND ===== */
+        .specular-button-send {
+            --sb-radius: 12px;
+            --sb-tint: #ffffff;
+            --sb-tint-opacity: 0;
+            --sb-blur: 0px;
+            --sb-text-color: #f5f5f5;
+
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            margin: 0;
+            width: 100%;
+            font-family: inherit;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            line-height: 1;
+            color: var(--sb-text-color);
+            background: linear-gradient(135deg, #7c3aed, #6366f1);
+            border-radius: var(--sb-radius);
+            backdrop-filter: blur(var(--sb-blur));
+            -webkit-backdrop-filter: blur(var(--sb-blur));
+            box-shadow: 0 4px 16px -4px rgba(99, 102, 241, 0.3);
+            cursor: pointer;
+            outline: none;
+            transition: all 0.25s ease;
+            padding: 10px;
+            font-size: 1rem;
+            text-decoration: none;
+            overflow: hidden;
+            color: #fff;
+        }
+
+        .specular-button-send:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px -6px rgba(99, 102, 241, 0.5);
+            background: linear-gradient(135deg, #8b5cf6, #818cf8);
+            color: #fff;
+        }
+
+        .specular-button-send:active {
+            transform: scale(0.97);
+        }
+
+        .specular-button-send .shine {
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(
+                circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+                rgba(255, 255, 255, 0.25) 0%,
+                rgba(255, 255, 255, 0.05) 40%,
+                transparent 70%
+            );
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            border-radius: var(--sb-radius);
+        }
+
+        .specular-button-send:hover .shine {
+            opacity: 1;
+        }
+
+        .specular-button-send .glow-line {
+            position: absolute;
+            inset: 0;
+            border-radius: var(--sb-radius);
+            padding: 1.5px;
+            background: linear-gradient(
+                135deg,
+                rgba(255, 255, 255, 0.2) 0%,
+                rgba(255, 255, 255, 0) 30%,
+                rgba(255, 255, 255, 0) 70%,
+                rgba(255, 255, 255, 0.1) 100%
+            );
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask-composite: exclude;
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        .specular-button-send__label {
+            position: relative;
+            z-index: 2;
+        }
+
+        .specular-button-send .spinner-border {
+            position: relative;
+            z-index: 2;
+        }
+
+        /* ===== NAVBAR ===== */
+        .navbar-custom {
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 12px 28px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .navbar-custom .brand {
+            color: #f0f0ff;
+            font-weight: 700;
+            font-size: 1.2rem;
+            letter-spacing: -0.3px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .navbar-custom .brand i {
+            color: var(--primary-light);
+        }
+
+        .back-btn {
+            color: rgba(255, 255, 255, 0.4);
+            text-decoration: none;
+            transition: all 0.25s ease;
+            font-size: 0.9rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .back-btn:hover {
+            color: #fff;
+        }
+
+        .navbar-custom .session-info {
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 0.85rem;
+        }
+
+        .navbar-custom .session-info span {
+            color: #f0f0ff;
+            font-weight: 600;
+        }
+
+        .navbar-custom .session-info .badge {
+            background: rgba(99, 102, 241, 0.2) !important;
+            color: var(--primary-light);
+            font-weight: 500;
+            padding: 4px 12px;
+            border-radius: 60px;
+        }
+
+        .navbar-custom .user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .navbar-custom .user-name {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        /* ===== MAIN LAYOUT ===== */
+        .main-container {
+            padding: 24px 28px 50px;
+            max-width: 1440px;
+            margin: 0 auto;
+        }
+
+        /* ===== GLASS CARDS ===== */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            margin-bottom: 20px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .glass-card:hover {
+            border-color: rgba(167, 139, 250, 0.12);
+        }
+
+        .glass-card .card-header {
+            background: rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 14px 20px;
+            font-weight: 600;
+            color: #f0f0ff;
+            font-size: 0.95rem;
+        }
+
+        .glass-card .card-header i {
+            color: var(--primary-light);
+        }
+
+        .glass-card .card-body {
+            padding: 20px;
+        }
+
+        .glass-card .card-footer {
+            background: rgba(255, 255, 255, 0.02);
+            border-top: 1px solid rgba(255, 255, 255, 0.04);
+            padding: 14px 20px;
+        }
+
+        /* ===== DROP ZONE ===== */
         .drop-zone {
-            border: 2px dashed #dee2e6;
-            border-radius: 12px;
-            padding: 30px 20px;
+            border: 2px dashed rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            padding: 28px 16px;
             text-align: center;
             cursor: pointer;
-            transition: all 0.3s;
-            background: #fafafa;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.02);
         }
+
         .drop-zone.dragover {
-            border-color: var(--primary-color);
-            background: rgba(108, 92, 231, 0.05);
+            border-color: var(--primary-light);
+            background: rgba(99, 102, 241, 0.06);
         }
+
+        .drop-zone i {
+            color: var(--primary-light);
+            opacity: 0.6;
+        }
+
+        .drop-zone p {
+            color: rgba(255, 255, 255, 0.5);
+            margin-bottom: 2px;
+        }
+
+        .drop-zone small {
+            color: rgba(255, 255, 255, 0.2);
+        }
+
+        /* ===== FILE LIST ===== */
         .file-item {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 8px 12px;
-            background: #f8f9fa;
-            border-radius: 6px;
+            padding: 6px 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
             margin-bottom: 4px;
+            font-size: 0.85rem;
         }
+
         .file-item .remove-file {
-            color: var(--danger-color);
+            color: var(--danger);
             cursor: pointer;
             border: none;
             background: none;
+            opacity: 0.5;
+            transition: opacity 0.2s;
         }
+
+        .file-item .remove-file:hover {
+            opacity: 1;
+        }
+
+        .file-item .text-muted {
+            color: rgba(255, 255, 255, 0.3) !important;
+        }
+
+        /* ===== DOCUMENT ITEMS ===== */
+        .doc-item {
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .doc-item:last-child {
+            border-bottom: none;
+        }
+
+        .doc-item .doc-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .doc-item .doc-info .doc-name {
+            font-size: 0.9rem;
+            color: #f0f0ff;
+            word-break: break-word;
+        }
+
+        .doc-item .doc-info .doc-meta {
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.3);
+        }
+
+        .doc-item .doc-actions {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .badge-status {
+            font-size: 0.65rem;
+            padding: 3px 10px;
+            border-radius: 60px;
+            font-weight: 500;
+        }
+
+        .badge-status.completed {
+            background: rgba(16, 185, 129, 0.15);
+            color: #6ee7b7;
+        }
+
+        .badge-status.pending {
+            background: rgba(251, 191, 36, 0.15);
+            color: #fcd34d;
+        }
+
+        .badge-status.processing {
+            background: rgba(56, 189, 248, 0.15);
+            color: #7dd3fc;
+        }
+
+        .badge-status.failed {
+            background: rgba(239, 68, 68, 0.15);
+            color: #fca5a5;
+        }
+
+        /* ===== CHAT ===== */
         .chat-container {
-            max-height: 400px;
+            max-height: 420px;
             overflow-y: auto;
-            padding: 10px;
+            padding: 4px 4px 10px;
         }
-        .message { margin-bottom: 16px; display: flex; }
-        .message.user { justify-content: flex-end; }
-        .message.assistant { justify-content: flex-start; }
+
+        .chat-container::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .chat-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+
+        .message {
+            margin-bottom: 14px;
+            display: flex;
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message.assistant {
+            justify-content: flex-start;
+        }
+
         .message .bubble {
-            max-width: 75%;
-            padding: 12px 16px;
+            max-width: 80%;
+            padding: 10px 16px;
             border-radius: 16px;
             word-wrap: break-word;
             white-space: pre-wrap;
+            font-size: 0.92rem;
+            line-height: 1.6;
         }
+
         .message.user .bubble {
-            background: var(--primary-color);
+            background: linear-gradient(135deg, #7c3aed, #6366f1);
             color: #fff;
             border-bottom-right-radius: 4px;
         }
+
         .message.assistant .bubble {
-            background: #e9ecef;
-            color: #212529;
+            background: rgba(255, 255, 255, 0.06);
+            color: #f0f0ff;
             border-bottom-left-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
         }
+
         .message .sources {
-            font-size: 12px;
-            color: #6c757d;
+            font-size: 0.75rem;
+            color: var(--primary-light);
             margin-top: 4px;
             cursor: pointer;
+            opacity: 0.7;
+            transition: opacity 0.2s;
         }
-        .message .sources:hover { color: var(--primary-color); }
-        .typing-indicator { display: flex; gap: 4px; padding: 8px 0; }
+
+        .message .sources:hover {
+            opacity: 1;
+        }
+
+        .typing-indicator {
+            display: flex;
+            gap: 5px;
+            padding: 4px 0;
+        }
+
         .typing-indicator span {
-            width: 8px; height: 8px;
-            background: #6c757d;
+            width: 8px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.3);
             border-radius: 50%;
             animation: typing 1.4s infinite both;
         }
-        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
-        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+        .typing-indicator span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-indicator span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
         @keyframes typing {
-            0%, 60%, 100% { transform: translateY(0); }
-            30% { transform: translateY(-10px); }
+            0%,
+            60%,
+            100% {
+                transform: translateY(0);
+            }
+            30% {
+                transform: translateY(-8px);
+            }
         }
-        .status-badge {
-            font-size: 12px;
-            padding: 3px 10px;
-            border-radius: 20px;
+
+        /* ===== CHAT INPUT ===== */
+        .chat-input {
+            border-radius: 12px;
+            padding: 12px 16px;
+            border: 1.5px solid rgba(255, 255, 255, 0.06);
+            background: rgba(255, 255, 255, 0.04);
+            color: #f0f0ff;
+            transition: all 0.25s ease;
         }
-        .status-completed { background: var(--success-color); color: white; }
-        .status-pending { background: #ffc107; color: #000; }
-        .status-processing { background: #17a2b8; color: white; }
-        .status-failed { background: var(--danger-color); color: white; }
-        .back-btn {
-            color: #a0a0b8;
-            text-decoration: none;
-            transition: all 0.3s;
+
+        .chat-input::placeholder {
+            color: rgba(255, 255, 255, 0.2);
         }
-        .back-btn:hover {
-            color: white;
+
+        .chat-input:focus {
+            border-color: #818cf8;
+            background: rgba(255, 255, 255, 0.06);
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.08);
+            outline: none;
+            color: #f0f0ff;
         }
-        .doc-card {
-            transition: all 0.2s;
+
+        .suggestion-btn {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            color: rgba(255, 255, 255, 0.5);
+            border-radius: 8px;
+            padding: 4px 14px;
+            font-size: 0.75rem;
+            transition: all 0.2s ease;
+            margin-right: 4px;
+            margin-bottom: 4px;
         }
-        .doc-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+
+        .suggestion-btn:hover {
+            background: rgba(255, 255, 255, 0.06);
+            color: #fff;
+        }
+
+        .chat-status {
+            font-size: 0.75rem;
+            padding: 4px 14px;
+            border-radius: 60px;
+            background: rgba(16, 185, 129, 0.12);
+            color: #6ee7b7;
+        }
+
+        /* ===== HISTORY ===== */
+        .history-item {
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+        }
+
+        .history-item:last-child {
+            border-bottom: none;
+        }
+
+        .history-item .h-question {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .history-item .h-time {
+            color: rgba(255, 255, 255, 0.2);
+            font-size: 0.7rem;
+        }
+
+        /* ===== TOAST ===== */
+        .toast-container {
+            z-index: 9999;
+        }
+
+        .toast {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 14px;
+            color: #f0f0ff;
+        }
+
+        .toast .toast-header {
+            background: transparent;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            color: #f0f0ff;
+        }
+
+        .toast .toast-header .btn-close {
+            filter: invert(1) brightness(0.6);
+        }
+
+        .progress {
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 8px;
+            height: 6px;
+        }
+
+        .progress-bar {
+            background: linear-gradient(90deg, #7c3aed, #6366f1);
+            border-radius: 8px;
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 992px) {
+            .main-container {
+                padding: 16px;
+            }
+            .navbar-custom {
+                padding: 10px 16px;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .navbar-custom .brand {
+                font-size: 1rem;
+            }
+            .navbar-custom .session-info {
+                font-size: 0.75rem;
+            }
+        }
+
+        @media (max-width: 576px) {
+            .navbar-custom .session-info .badge {
+                display: none;
+            }
+            .glass-card .card-body {
+                padding: 14px;
+            }
+            .drop-zone {
+                padding: 20px 12px;
+            }
+            .message .bubble {
+                max-width: 90%;
+                font-size: 0.85rem;
+            }
+            .main-container {
+                padding: 12px;
+            }
+            .doc-item {
+                flex-wrap: wrap;
+            }
+            .doc-item .doc-actions {
+                width: 100%;
+                justify-content: flex-end;
+            }
         }
     </style>
 </head>
 <body>
 
     <!-- ===== NAVBAR ===== -->
-    <nav class="navbar-custom d-flex justify-content-between align-items-center">
-        <div>
-            <a href="dashboard.html" class="back-btn me-3">
-                <i class="fas fa-arrow-right"></i> بازگشت
+    <nav class="navbar-custom d-flex justify-content-between align-items-center flex-wrap">
+        <div class="d-flex align-items-center gap-3">
+            <a href="dashboard.html" class="back-btn">
+                <i class="fas fa-arrow-left"></i> Back
             </a>
             <span class="brand"><i class="fas fa-brain"></i> Graph-RAG</span>
         </div>
-        <div class="session-title">
+        <div class="session-info">
             <i class="fas fa-comments me-1"></i>
-            جلسه: <span id="sessionTitle">بارگذاری...</span>
-            <span class="badge bg-primary ms-2" id="sessionIdBadge">ID: 0</span>
+            Session: <span id="sessionTitle">Loading...</span>
+            <span class="badge ms-2" id="sessionIdBadge">ID: 0</span>
         </div>
-        <div>
-            <span class="text-secondary small me-2" id="userNameDisplay">کاربر</span>
-            <button class="btn btn-danger btn-sm" onclick="logout()">
-                <i class="fas fa-sign-out-alt"></i>
+        <div class="user-info">
+            <span class="user-name" id="userNameDisplay">User</span>
+            <button class="specular-button-logout" onclick="logout()">
+                <span class="shine"></span>
+                <span class="specular-button-logout__label">
+                    <i class="fas fa-sign-out-alt"></i>
+                </span>
             </button>
         </div>
     </nav>
 
-    <div class="container-fluid p-4">
-        <div class="row">
+    <!-- ===== MAIN CONTENT ===== -->
+    <div class="main-container">
+        <div class="row g-3">
 
-            <!-- ===== ستون چپ: آپلود و اسناد ===== -->
+            <!-- ===== LEFT COLUMN: Upload & Documents ===== -->
             <div class="col-lg-4">
 
-                <!-- ===== کارت: آپلود فایل ===== -->
-                <div class="card">
+                <!-- ===== UPLOAD CARD ===== -->
+                <div class="glass-card">
                     <div class="card-header">
-                        <i class="fas fa-upload text-primary me-2"></i> آپلود فایل
+                        <i class="fas fa-upload me-2"></i> Upload Files
                     </div>
                     <div class="card-body">
                         <div class="drop-zone" id="dropZone">
-                            <i class="fas fa-cloud-upload-alt fa-3x text-primary mb-2"></i>
-                            <p class="mb-1">فایل‌های PDF را بکشید و رها کنید</p>
-                            <small class="text-muted">یا کلیک کنید تا انتخاب کنید</small>
+                            <i class="fas fa-cloud-upload-alt fa-2x mb-2 d-block"></i>
+                            <p>Drag & drop PDF files here</p>
+                            <small>or click to browse</small>
                             <input type="file" id="fileInput" multiple accept=".pdf" class="d-none">
-                            <button class="btn btn-primary btn-sm mt-2" onclick="document.getElementById('fileInput').click()">
-                                <i class="fas fa-folder-open me-1"></i> انتخاب فایل
+                            <button class="specular-button-primary mt-2" onclick="document.getElementById('fileInput').click()">
+                                <span class="shine"></span>
+                                <span class="glow-line"></span>
+                                <span class="specular-button-primary__label">
+                                    <i class="fas fa-folder-open me-1"></i> Select Files
+                                </span>
                             </button>
                             <div id="fileList" class="mt-2"></div>
                         </div>
-                        <button class="btn btn-success w-100 mt-2" id="uploadBtn" disabled>
-                            <i class="fas fa-upload me-1"></i> آپلود در این سشن
+                        <button class="specular-button-success mt-2" id="uploadBtn" disabled>
+                            <span class="shine"></span>
+                            <span class="glow-line"></span>
+                            <span class="specular-button-success__label">
+                                <i class="fas fa-upload me-1"></i> Upload to Session
+                            </span>
                         </button>
                         <div id="uploadProgress" class="mt-2 d-none">
-                            <div class="progress"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:0%"></div></div>
-                            <small class="text-muted" id="uploadStatus">در حال آپلود...</small>
+                            <div class="progress"><div class="progress-bar" style="width:0%"></div></div>
+                            <small class="text-muted" id="uploadStatus">Uploading...</small>
                         </div>
                     </div>
                 </div>
 
-                <!-- ===== کارت: اسناد این سشن ===== -->
-                <div class="card">
+                <!-- ===== DOCUMENTS CARD ===== -->
+                <div class="glass-card">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <span><i class="fas fa-file-pdf text-danger me-2"></i> اسناد این جلسه</span>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="loadDocuments()">
-                            <i class="fas fa-sync"></i>
+                        <span><i class="fas fa-file-pdf me-2"></i> Documents</span>
+                        <button class="specular-button-primary" onclick="loadDocuments()" style="padding:4px 12px;font-size:0.75rem;">
+                            <span class="shine"></span>
+                            <span class="glow-line"></span>
+                            <span class="specular-button-primary__label">
+                                <i class="fas fa-sync"></i>
+                            </span>
                         </button>
                     </div>
                     <div class="card-body" id="documentsList" style="max-height:300px;overflow-y:auto;">
-                        <div class="text-center text-muted py-3">
-                            <i class="fas fa-spinner fa-spin"></i> در حال بارگذاری...
+                        <div class="text-center py-3" style="color: rgba(255,255,255,0.2);">
+                            <i class="fas fa-spinner fa-spin"></i> Loading...
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- ===== ستون راست: چت ===== -->
+            <!-- ===== RIGHT COLUMN: Chat ===== -->
             <div class="col-lg-8">
 
-                <!-- ===== کارت: چت هوش مصنوعی ===== -->
-                <div class="card">
+                <!-- ===== CHAT CARD ===== -->
+                <div class="glass-card">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <span><i class="fas fa-comment-dots text-success me-2"></i> چت هوش مصنوعی</span>
-                        <span class="badge bg-success" id="chatStatus">آماده</span>
+                        <span><i class="fas fa-comment-dots me-2"></i> AI Chat</span>
+                        <span class="chat-status" id="chatStatus">● Ready</span>
                     </div>
                     <div class="card-body chat-container" id="chatContainer">
                         <div id="chatMessages">
-                            <div class="text-center text-muted py-4">
-                                <i class="fas fa-robot fa-3x mb-2 d-block"></i>
-                                از اسناد این جلسه سوال بپرسید
+                            <div class="text-center py-4" style="color: rgba(255,255,255,0.2);">
+                                <i class="fas fa-robot fa-2x mb-2 d-block"></i>
+                                Ask questions about your documents
                             </div>
                         </div>
                     </div>
-                    <div class="card-footer bg-light">
+                    <div class="card-footer">
                         <div class="row g-2">
                             <div class="col-9">
-                                <input type="text" class="form-control" id="questionInput" placeholder="سوال خود را بنویسید...">
+                                <input type="text" class="chat-input w-100" id="questionInput" placeholder="Type your question...">
                             </div>
                             <div class="col-3">
-                                <button class="btn btn-success w-100" id="askBtn">
-                                    <i class="fas fa-paper-plane me-1"></i> بپرس
+                                <button class="specular-button-send" id="askBtn">
+                                    <span class="shine"></span>
+                                    <span class="glow-line"></span>
+                                    <span class="specular-button-send__label">
+                                        <i class="fas fa-paper-plane"></i>
+                                    </span>
                                 </button>
                             </div>
                         </div>
                         <div class="mt-2">
-                            <button class="btn btn-outline-secondary btn-sm me-1" onclick="setQuestion('این مقاله درباره چیست؟')">📄 موضوع</button>
-                            <button class="btn btn-outline-secondary btn-sm me-1" onclick="setQuestion('چه روش‌هایی استفاده شده؟')">🔬 روش‌ها</button>
-                            <button class="btn btn-outline-secondary btn-sm" onclick="setQuestion('نتایج اصلی چیست؟')">📊 نتایج</button>
+                            <button class="suggestion-btn" onclick="setQuestion('What is this document about?')">📄 Topic</button>
+                            <button class="suggestion-btn" onclick="setQuestion('What methods were used?')">🔬 Methods</button>
+                            <button class="suggestion-btn" onclick="setQuestion('What are the main findings?')">📊 Findings</button>
+                            <button class="suggestion-btn" onclick="setQuestion('Summarize this document')">📝 Summary</button>
                         </div>
                     </div>
                 </div>
 
-                <!-- ===== کارت: تاریخچه سوالات این سشن ===== -->
-                <div class="card">
+                <!-- ===== HISTORY CARD ===== -->
+                <div class="glass-card">
                     <div class="card-header">
-                        <i class="fas fa-history text-info me-2"></i> تاریخچه سوالات این جلسه
+                        <i class="fas fa-history me-2"></i> Question History
                     </div>
                     <div class="card-body" id="historyList" style="max-height:200px;overflow-y:auto;">
-                        <div class="text-center text-muted py-2">
-                            <i class="fas fa-spinner fa-spin"></i> در حال بارگذاری...
+                        <div class="text-center py-2" style="color: rgba(255,255,255,0.2);">
+                            <i class="fas fa-spinner fa-spin"></i> Loading...
                         </div>
                     </div>
                 </div>
@@ -272,18 +1089,52 @@
     </div>
 
     <!-- ===== TOAST ===== -->
-    <div class="position-fixed bottom-0 end-0 p-3" style="z-index:9999;">
+    <div class="position-fixed bottom-0 end-0 p-3 toast-container">
         <div id="toast" class="toast" role="alert">
             <div class="toast-header">
-                <strong class="me-auto" id="toastTitle">اطلاعیه</strong>
+                <strong class="me-auto" id="toastTitle">Notice</strong>
                 <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
             </div>
-            <div class="toast-body" id="toastMessage">پیام</div>
+            <div class="toast-body" id="toastMessage">Message</div>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js">
+    </script>
     <script>
+        // ============================================================
+        //  SPECULAR BUTTON SETUP
+        // ============================================================
+        function setupSpecularButton(button) {
+            if (!button) return;
+
+            const shine = button.querySelector('.shine');
+            if (!shine) return;
+
+            button.addEventListener('mousemove', function(e) {
+                const rect = this.getBoundingClientRect();
+                const x = ((e.clientX - rect.left) / rect.width) * 100;
+                const y = ((e.clientY - rect.top) / rect.height) * 100;
+                shine.style.setProperty('--mouse-x', x + '%');
+                shine.style.setProperty('--mouse-y', y + '%');
+            });
+
+            button.addEventListener('mouseleave', function() {
+                shine.style.opacity = '0';
+            });
+
+            button.addEventListener('mouseenter', function() {
+                shine.style.opacity = '1';
+            });
+        }
+
+        function initAllSpecularButtons() {
+            document.querySelectorAll('.specular-button-primary, .specular-button-success, .specular-button-danger, .specular-button-send, .specular-button-logout')
+                .forEach(btn => {
+                    setupSpecularButton(btn);
+                });
+        }
+
         // ============================================================
         //  CONFIG
         // ============================================================
@@ -298,7 +1149,7 @@
             const toast = document.getElementById('toast');
             document.getElementById('toastTitle').textContent = title;
             document.getElementById('toastMessage').textContent = message;
-            toast.className = `toast bg-${type} text-white`;
+            toast.className = `toast border-${type === 'success' ? 'success' : type === 'danger' ? 'danger' : 'primary'}`;
             new bootstrap.Toast(toast).show();
         }
 
@@ -318,13 +1169,18 @@
 
         function formatDate(dateStr) {
             if (!dateStr) return '';
-            return new Date(dateStr).toLocaleString('fa-IR');
+            return new Date(dateStr).toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
         }
 
         // ============================================================
         //  USER
         // ============================================================
-        document.getElementById('userNameDisplay').textContent = localStorage.getItem('user_name') || 'کاربر';
+        document.getElementById('userNameDisplay').textContent = localStorage.getItem('user_name') || 'User';
 
         function logout() {
             localStorage.clear();
@@ -341,10 +1197,10 @@
                 });
                 const data = await res.json();
                 const session = data.session || data;
-                document.getElementById('sessionTitle').textContent = session.title || 'بدون عنوان';
+                document.getElementById('sessionTitle').textContent = session.title || 'Untitled';
                 document.getElementById('sessionIdBadge').textContent = `ID: ${SESSION_ID}`;
             } catch (e) {
-                document.getElementById('sessionTitle').textContent = 'خطا در بارگذاری';
+                document.getElementById('sessionTitle').textContent = 'Error loading';
             }
         }
 
@@ -362,39 +1218,87 @@
 
                 if (!docs.length) {
                     container.innerHTML = `
-                        <div class="text-center text-muted py-3">
-                            <i class="fas fa-file-pdf fa-2x mb-2 d-block"></i>
-                            هیچ سندی در این جلسه وجود ندارد
-                        </div>
-                    `;
+                                <div class="text-center py-3" style="color: rgba(255,255,255,0.2);">
+                                    <i class="fas fa-file-pdf fa-2x mb-2 d-block"></i>
+                                    No documents in this session
+                                </div>
+                            `;
                     return;
                 }
 
                 container.innerHTML = docs.map(d => `
-                    <div class="doc-card border-bottom py-2 d-flex justify-content-between align-items-center">
-                        <div>
-                            <i class="fas fa-file-pdf text-danger me-1"></i>
-                            <span class="small">${d.original_name || d.name || 'بدون نام'}</span>
-                            <span class="badge ${d.processing_status === 'completed' ? 'status-completed' : 'status-pending'} ms-1">
-                                ${d.processing_status || 'pending'}
-                            </span>
-                            <br>
-                            <small class="text-muted">📄 ${d.page_count || 0} صفحه • ${formatSize(d.file_size || 0)}</small>
-                        </div>
-                        <button class="btn btn-sm btn-outline-primary" onclick="askAboutDoc(${d.id})">
-                            <i class="fas fa-question"></i>
-                        </button>
-                    </div>
-                `).join('');
+                            <div class="doc-item">
+                                <div class="doc-info">
+                                    <div class="doc-name">
+                                        <i class="fas fa-file-pdf me-1" style="color: #ef4444;"></i>
+                                        ${d.original_name || d.name || 'Untitled'}
+                                    </div>
+                                    <div class="doc-meta">
+                                        📄 ${d.page_count || 0} pages • ${formatSize(d.file_size || 0)}
+                                        <span class="badge-status ${d.processing_status === 'completed' ? 'completed' : 'pending'} ms-1">
+                                            ${d.processing_status || 'pending'}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="doc-actions">
+                                    <button class="specular-button-primary" onclick="askAboutDoc(${d.id})" style="padding:4px 10px;font-size:0.7rem;" title="Ask about this document">
+                                        <span class="shine"></span>
+                                        <span class="glow-line"></span>
+                                        <span class="specular-button-primary__label">
+                                            <i class="fas fa-question"></i>
+                                        </span>
+                                    </button>
+                                    <button class="specular-button-danger" onclick="deleteDocument(${d.id})" title="Delete document">
+                                        <span class="shine"></span>
+                                        <span class="specular-button-danger__label">
+                                            <i class="fas fa-trash"></i>
+                                        </span>
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('');
+
+                // Setup specular buttons for new buttons
+                document.querySelectorAll('.specular-button-primary, .specular-button-danger').forEach(btn => {
+                    setupSpecularButton(btn);
+                });
 
             } catch (e) {
-                container.innerHTML = `<div class="alert alert-danger">خطا: ${e.message}</div>`;
+                container.innerHTML = `<div class="text-danger small">Error: ${e.message}</div>`;
             }
         }
 
         function askAboutDoc(id) {
-            setQuestion(`در مورد سند شماره ${id} توضیح بده`);
+            setQuestion(`Explain document #${id}`);
             document.getElementById('questionInput').focus();
+        }
+
+        // ============================================================
+        //  DELETE DOCUMENT
+        // ============================================================
+        async function deleteDocument(documentId) {
+            if (!confirm(`Are you sure you want to delete this document? This action cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/documents/${documentId}/delete`, {
+                    method: 'DELETE',
+                    headers: getHeaders()
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    showToast('Success', 'Document deleted successfully!', 'success');
+                    await loadDocuments();
+                    await loadHistory();
+                } else {
+                    showToast('Error', data.message || 'Failed to delete document.', 'danger');
+                }
+            } catch (e) {
+                showToast('Error', 'Server connection error: ' + e.message, 'danger');
+            }
         }
 
         // ============================================================
@@ -416,7 +1320,7 @@
 
         function handleFiles(files) {
             const valid = Array.from(files).filter(f => f.type === 'application/pdf');
-            if (!valid.length) { showToast('خطا', 'فایل PDF معتبر انتخاب کنید', 'danger'); return; }
+            if (!valid.length) { showToast('Error', 'Please select valid PDF files.', 'danger'); return; }
             selectedFiles = [...selectedFiles, ...valid];
             renderFileList();
             document.getElementById('uploadBtn').disabled = false;
@@ -426,14 +1330,14 @@
             const container = document.getElementById('fileList');
             if (!selectedFiles.length) { container.innerHTML = ''; return; }
             container.innerHTML = selectedFiles.map((f, i) => `
-                <div class="file-item">
-                    <div>
-                        <span class="small">${f.name}</span>
-                        <span class="text-muted small ms-1">${formatSize(f.size)}</span>
-                    </div>
-                    <button class="remove-file" onclick="removeFile(${i})"><i class="fas fa-times"></i></button>
-                </div>
-            `).join('');
+                        <div class="file-item">
+                            <div>
+                                <span>${f.name}</span>
+                                <span class="text-muted ms-1">${formatSize(f.size)}</span>
+                            </div>
+                            <button class="remove-file" onclick="removeFile(${i})"><i class="fas fa-times"></i></button>
+                        </div>
+                    `).join('');
         }
 
         function removeFile(i) {
@@ -449,42 +1353,52 @@
             const bar = progress.querySelector('.progress-bar');
             const status = document.getElementById('uploadStatus');
 
+            const originalHTML = btn.innerHTML;
             btn.disabled = true;
+            btn.innerHTML = `
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span class="specular-button-success__label">Uploading...</span>
+                    `;
+
             progress.classList.remove('d-none');
             bar.style.width = '0%';
-            status.textContent = '⏳ در حال آپلود...';
+            status.textContent = '⏳ Uploading...';
 
             const formData = new FormData();
             selectedFiles.forEach(f => formData.append('files[]', f));
 
             try {
-                const res = await fetch(`${API_URL}/documents/upload/sessions/${SESSION_ID}/users/${localStorage.getItem('user_id') || 1}`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${TOKEN}` },
-                    body: formData
-                });
+                const res = await fetch(
+                    `${API_URL}/documents/upload/sessions/${SESSION_ID}/users/${localStorage.getItem('user_id') || 1}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${TOKEN}` },
+                        body: formData
+                    }
+                );
                 const data = await res.json();
                 if (res.ok) {
-                    showToast('موفق', 'فایل‌ها آپلود شدند', 'success');
+                    showToast('Success', 'Files uploaded successfully!', 'success');
                     selectedFiles = [];
                     renderFileList();
                     btn.disabled = true;
                     bar.style.width = '100%';
-                    status.textContent = '✅ کامل';
+                    status.textContent = '✅ Complete';
                     loadDocuments();
                 } else {
-                    showToast('خطا', data.message || 'خطا در آپلود', 'danger');
-                    status.textContent = '❌ خطا';
+                    showToast('Error', data.message || 'Upload failed.', 'danger');
+                    status.textContent = '❌ Error';
                 }
             } catch (e) {
-                showToast('خطا', 'مشکل در ارتباط با سرور', 'danger');
-                status.textContent = '❌ خطا';
+                showToast('Error', 'Server connection error.', 'danger');
+                status.textContent = '❌ Error';
             }
 
             setTimeout(() => {
                 progress.classList.add('d-none');
                 bar.style.width = '0%';
                 btn.disabled = false;
+                btn.innerHTML = originalHTML;
             }, 3000);
         });
 
@@ -502,7 +1416,7 @@
 
         function addMessage(role, content, isTyping = false) {
             const container = document.getElementById('chatMessages');
-            const emptyMsg = container.querySelector('.text-center.text-muted');
+            const emptyMsg = container.querySelector('.text-center.py-4');
             if (emptyMsg) emptyMsg.remove();
 
             const msg = document.createElement('div');
@@ -525,13 +1439,20 @@
             }
         }
 
+        function updateStatus(text, isReady = true) {
+            const status = document.getElementById('chatStatus');
+            status.textContent = text;
+            status.style.color = isReady ? '#6ee7b7' : '#fcd34d';
+        }
+
         async function askQuestion() {
             const input = document.getElementById('questionInput');
             const q = input.value.trim();
-            if (!q) { showToast('توجه', 'سوال خود را وارد کنید', 'warning'); return; }
+            if (!q) { showToast('Notice', 'Please enter a question.', 'warning'); return; }
             input.value = '';
             addMessage('user', q);
             addMessage('assistant', '', true);
+            updateStatus('⏳ Processing...', false);
 
             try {
                 const res = await fetch(`${API_URL}/sessions/${SESSION_ID}/search`, {
@@ -542,7 +1463,8 @@
                 const data = await res.json();
                 if (!res.ok) {
                     removeTyping();
-                    addMessage('assistant', `❌ خطا: ${data.message || 'مشکل در پردازش'}`);
+                    addMessage('assistant', `❌ Error: ${data.message || 'Processing failed'}`);
+                    updateStatus('● Ready', true);
                     return;
                 }
                 currentQId = data.question_id;
@@ -550,7 +1472,8 @@
                 pollInterval = setInterval(checkStatus, 3000);
             } catch (e) {
                 removeTyping();
-                addMessage('assistant', `❌ خطا در ارتباط: ${e.message}`);
+                addMessage('assistant', `❌ Connection error: ${e.message}`);
+                updateStatus('● Ready', true);
             }
         }
 
@@ -569,37 +1492,39 @@
 
         async function getResult() {
             try {
-                const res = await fetch(`${API_URL}/questions/${currentQId}/result`, { 
-                    headers: getHeaders() 
+                const res = await fetch(`${API_URL}/questions/${currentQId}/result`, {
+                    headers: getHeaders()
                 });
                 const data = await res.json();
                 removeTyping();
-                
-                // ===== اینجا data.answer را نمایش دهید =====
+
                 if (data.answer) {
                     let srcHtml = '';
                     if (data.sources && data.sources.length) {
-                        srcHtml = `<div class="sources" onclick="showSources(${JSON.stringify(data.sources).replace(/"/g,'&quot;')})">📚 ${data.sources.length} منبع</div>`;
+                        srcHtml =
+                            `<div class="sources" onclick="showSources(${JSON.stringify(data.sources).replace(/"/g,'&quot;')})">📚 ${data.sources.length} sources</div>`;
                     }
                     addMessage('assistant', data.answer + srcHtml);
                     loadHistory();
                 } else if (data.status === 'failed') {
-                    addMessage('assistant', `❌ خطا: ${data.error || 'پاسخی دریافت نشد'}`);
+                    addMessage('assistant', `❌ Error: ${data.error || 'No response received'}`);
                 } else {
-                    addMessage('assistant', '❌ پاسخی دریافت نشد');
+                    addMessage('assistant', '❌ No response received');
                 }
                 currentQId = null;
+                updateStatus('● Ready', true);
             } catch (e) {
                 removeTyping();
-                addMessage('assistant', `❌ خطا: ${e.message}`);
+                addMessage('assistant', `❌ Error: ${e.message}`);
+                updateStatus('● Ready', true);
             }
         }
 
         function showSources(sources) {
-            let html = '<div class="p-2">📚 <strong>منابع:</strong><ul class="mb-0 mt-1">';
-            sources.forEach(s => html += `<li class="text-muted small">سند ${s.document_id}</li>`);
+            let html = '<div class="p-2">📚 <strong>Sources:</strong><ul class="mb-0 mt-1">';
+            sources.forEach(s => html += `<li class="small" style="color:rgba(255,255,255,0.5);">Document ${s.document_id}</li>`);
             html += '</ul></div>';
-            showToast('منابع', html, 'info');
+            showToast('Sources', html, 'info');
         }
 
         // ============================================================
@@ -613,22 +1538,20 @@
                 const questions = data.questions || [];
 
                 if (!questions.length) {
-                    container.innerHTML = `<div class="text-center text-muted py-2">هنوز سوالی پرسیده نشده است</div>`;
+                    container.innerHTML =
+                        `<div class="text-center py-2" style="color: rgba(255,255,255,0.2);">No questions asked yet</div>`;
                     return;
                 }
 
                 container.innerHTML = questions.map(q => `
-                    <div class="border-bottom py-1 d-flex justify-content-between align-items-center">
-                        <div class="small">
-                            <span class="fw-bold">${q.content}</span>
-                            ${q.status === 'completed' ? `<span class="badge status-completed ms-1">✅</span>` : `<span class="badge status-pending ms-1">⏳</span>`}
-                        </div>
-                        <small class="text-muted">${formatDate(q.created_at)}</small>
-                    </div>
-                `).join('');
+                            <div class="history-item">
+                                <span class="h-question">${q.content}</span>
+                                <span class="h-time">${formatDate(q.created_at)}</span>
+                            </div>
+                        `).join('');
 
             } catch (e) {
-                container.innerHTML = `<div class="text-danger small">خطا: ${e.message}</div>`;
+                container.innerHTML = `<div class="text-danger small">Error: ${e.message}</div>`;
             }
         }
 
@@ -641,12 +1564,15 @@
                 return;
             }
 
+            initAllSpecularButtons();
             loadSessionInfo();
             loadDocuments();
             loadHistory();
 
             setTimeout(() => {
-                addMessage('assistant', '👋 سلام! من دستیار هوشمند Graph-RAG هستم.\n\n📄 می‌توانید فایل‌های PDF را در این جلسه آپلود کنید و هر سوالی درباره آنها بپرسید.');
+                addMessage('assistant',
+                    '👋 Hello! I\'m the Graph-RAG smart assistant.\n\n📄 Upload PDF files to this session and ask me anything about them.'
+                    );
             }, 500);
         });
     </script>

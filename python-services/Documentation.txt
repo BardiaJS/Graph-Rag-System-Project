@@ -9,7 +9,16 @@ uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 cd python-services
 source venv/bin/activate
 export CUDA_VISIBLE_DEVICES=-1
-python worker.py
+# 1. افزایش Swap
+sudo swapoff /swapfile
+sudo fallocate -l 4G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+free -h
+
+# 2. اجرا با محدودیت حافظه
+php -d memory_limit=512M artisan queue:work --timeout=600 --tries=1 --memory=512
 
 # ترمینال ۳: اجرای Redis
 redis-server

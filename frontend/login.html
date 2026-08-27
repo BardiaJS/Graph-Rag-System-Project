@@ -1,89 +1,369 @@
 <!DOCTYPE html>
-<html lang="fa" dir="rtl">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ورود به Graph-RAG</title>
+    <title>Graph-RAG · Log In</title>
+    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: radial-gradient(ellipse at 10% 20%, #0f0c29, #302b63, #24243e);
+            padding: 20px;
         }
+
         .login-card {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            max-width: 420px;
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 36px;
+            padding: 44px 40px 38px;
+            box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            max-width: 440px;
             width: 100%;
+            transition: all 0.3s ease;
         }
-        .login-card .logo { text-align: center; margin-bottom: 30px; }
-        .login-card .logo i { font-size: 48px; color: #667eea; }
-        .login-card .logo h3 { font-weight: 700; margin-top: 10px; color: #2d3748; }
-        .login-card .logo p { color: #718096; font-size: 14px; }
+
+        .login-card:hover {
+            border-color: rgba(167, 139, 250, 0.2);
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .logo .icon-wrap {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, #7c3aed, #6366f1);
+            border-radius: 24px;
+            box-shadow: 0 12px 35px -8px rgba(99, 102, 241, 0.4);
+            margin-bottom: 14px;
+        }
+
+        .logo .icon-wrap i {
+            font-size: 34px;
+            color: #fff;
+        }
+
+        .logo h3 {
+            font-weight: 700;
+            font-size: 1.8rem;
+            color: #f0f0ff;
+            letter-spacing: -0.5px;
+            margin: 0;
+        }
+
+        .logo p {
+            color: #a5b4fc;
+            font-size: 0.95rem;
+            margin-top: 4px;
+            font-weight: 400;
+            opacity: 0.8;
+        }
+
+        .form-label {
+            color: #d4d4f0;
+            font-weight: 500;
+            font-size: 0.85rem;
+            letter-spacing: 0.3px;
+            margin-bottom: 5px;
+        }
+
         .form-control {
-            border-radius: 10px;
-            padding: 12px 16px;
-            border: 2px solid #e2e8f0;
-            transition: all 0.3s;
+            border-radius: 14px;
+            padding: 14px 18px;
+            border: 1.5px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.05);
+            color: #f0f0ff;
+            transition: all 0.25s ease;
+            font-size: 0.95rem;
         }
+
+        .form-control::placeholder {
+            color: rgba(255, 255, 255, 0.25);
+            font-weight: 300;
+        }
+
         .form-control:focus {
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+            border-color: #818cf8;
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
+            outline: none;
+            color: #f0f0ff;
         }
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            border-radius: 10px;
-            padding: 12px;
-            font-weight: 600;
-            transition: all 0.3s;
+
+        .input-group {
+            position: relative;
         }
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
-        }
-        .btn-primary:disabled { opacity: 0.7; transform: none; }
-        .register-link { color: #667eea; text-decoration: none; font-weight: 600; }
-        .register-link:hover { text-decoration: underline; }
-        .alert { border-radius: 10px; }
+
         .password-toggle {
             position: absolute;
-            right: 15px;
+            right: 16px;
             top: 50%;
             transform: translateY(-50%);
             cursor: pointer;
-            color: #a0aec0;
+            color: rgba(255, 255, 255, 0.3);
             z-index: 10;
+            transition: color 0.2s;
+            font-size: 1rem;
         }
-        .password-toggle:hover { color: #4a5568; }
-        .input-group { position: relative; }
+
+        .password-toggle:hover {
+            color: #a5b4fc;
+        }
+
+        /* ===== SPECULAR BUTTON ===== */
+        .specular-button {
+            --sb-radius: 18px;
+            --sb-tint: #ffffff;
+            --sb-tint-opacity: 0;
+            --sb-blur: 0px;
+            --sb-text-color: #f5f5f5;
+
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            margin: 0;
+            width: 100%;
+            font-family: inherit;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            line-height: 1;
+            color: var(--sb-text-color);
+            background: linear-gradient(135deg, #7c3aed, #6366f1);
+            border-radius: var(--sb-radius);
+            backdrop-filter: blur(var(--sb-blur));
+            -webkit-backdrop-filter: blur(var(--sb-blur));
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.04),
+                0 8px 24px rgba(0, 0, 0, 0.25);
+            cursor: pointer;
+            outline: none;
+            transition: transform 0.15s ease;
+            padding: 18px 40px;
+            font-size: 1.15rem;
+            text-decoration: none;
+            overflow: hidden;
+            color: #fff;
+        }
+
+        .specular-button:active {
+            transform: scale(0.97);
+        }
+
+        .specular-button:focus-visible {
+            outline: 2px solid color-mix(in srgb, var(--sb-text-color) 60%, transparent);
+            outline-offset: 3px;
+        }
+
+        .specular-button:disabled {
+            opacity: 0.55;
+            cursor: default;
+            pointer-events: none;
+        }
+
+        .specular-button:disabled:active {
+            transform: none;
+        }
+
+        /* شاین - جلوه براق */
+        .specular-button .shine {
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(
+                circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+                rgba(255, 255, 255, 0.25) 0%,
+                rgba(255, 255, 255, 0.05) 40%,
+                transparent 70%
+            );
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            border-radius: var(--sb-radius);
+        }
+
+        .specular-button:hover .shine {
+            opacity: 1;
+        }
+
+        /* خطوط حاشیه‌ای */
+        .specular-button .glow-line {
+            position: absolute;
+            inset: 0;
+            border-radius: var(--sb-radius);
+            padding: 1.5px;
+            background: linear-gradient(
+                135deg,
+                rgba(255, 255, 255, 0.2) 0%,
+                rgba(255, 255, 255, 0) 30%,
+                rgba(255, 255, 255, 0) 70%,
+                rgba(255, 255, 255, 0.1) 100%
+            );
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask-composite: exclude;
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        /* انیمیشن خودکار شاین */
+        .specular-button.auto-animate .shine {
+            opacity: 1;
+            animation: shineMove 3s ease-in-out infinite;
+        }
+
+        @keyframes shineMove {
+            0% {
+                background: radial-gradient(circle at 0% 0%, rgba(255, 255, 255, 0.25) 0%, transparent 70%);
+            }
+            50% {
+                background: radial-gradient(circle at 100% 100%, rgba(255, 255, 255, 0.25) 0%, transparent 70%);
+            }
+            100% {
+                background: radial-gradient(circle at 0% 0%, rgba(255, 255, 255, 0.25) 0%, transparent 70%);
+            }
+        }
+
+        .specular-button__label {
+            position: relative;
+            z-index: 2;
+        }
+
+        .specular-button .spinner-border {
+            position: relative;
+            z-index: 2;
+        }
+
+        .register-link {
+            color: #a5b4fc;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.2s;
+        }
+
+        .register-link:hover {
+            color: #c4b5fd;
+            text-decoration: underline;
+        }
+
+        .divider {
+            border: none;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            margin: 24px 0 20px;
+        }
+
+        .test-credentials {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.2);
+            font-size: 0.75rem;
+            line-height: 1.8;
+        }
+
+        .test-credentials span {
+            color: rgba(255, 255, 255, 0.35);
+        }
+
+        .alert {
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            color: #f0f0ff;
+            padding: 14px 18px;
+            font-size: 0.9rem;
+            backdrop-filter: blur(6px);
+        }
+
+        .alert-success {
+            border-color: rgba(52, 211, 153, 0.3);
+            background: rgba(52, 211, 153, 0.08);
+            color: #6ee7b7;
+        }
+
+        .alert-danger {
+            border-color: rgba(248, 113, 113, 0.3);
+            background: rgba(248, 113, 113, 0.08);
+            color: #fca5a5;
+        }
+
+        .alert .btn-close {
+            filter: invert(1) brightness(0.6);
+            opacity: 0.6;
+        }
+
+        .alert .btn-close:hover {
+            opacity: 1;
+        }
+
+        .text-muted {
+            color: rgba(255, 255, 255, 0.3) !important;
+        }
+
+        .mb-3 {
+            margin-bottom: 1.2rem !important;
+        }
+
+        .mb-4 {
+            margin-bottom: 1.6rem !important;
+        }
+
+        @media (max-width: 480px) {
+            .login-card {
+                padding: 30px 22px 28px;
+                border-radius: 28px;
+            }
+            .logo h3 { font-size: 1.5rem; }
+            .specular-button {
+                padding: 14px 30px;
+                font-size: 1rem;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="login-card">
         <div class="logo">
-            <i class="fas fa-brain"></i>
+            <div class="icon-wrap">
+                <i class="fas fa-brain"></i>
+            </div>
             <h3>Graph-RAG</h3>
-            <p>سیستم هوشمند تحلیل و پرسش از اسناد</p>
+            <p>Intelligent document analysis & Q&A</p>
         </div>
 
         <div id="alertContainer"></div>
 
         <form id="loginForm">
             <div class="mb-3">
-                <label class="form-label fw-bold">📧 ایمیل</label>
-                <input type="email" class="form-control" id="email" placeholder="example@email.com" required>
+                <label class="form-label">📧 Email Address</label>
+                <input type="email" class="form-control" id="email" placeholder="you@example.com" required>
             </div>
 
             <div class="mb-4">
-                <label class="form-label fw-bold">🔒 رمز عبور</label>
+                <label class="form-label">🔒 Password</label>
                 <div class="input-group">
                     <input type="password" class="form-control" id="password" placeholder="••••••••" required>
                     <span class="password-toggle" onclick="togglePassword()">
@@ -92,27 +372,72 @@
                 </div>
             </div>
 
-            <button type="submit" class="btn btn-primary w-100" id="loginBtn">
-                <i class="fas fa-sign-in-alt me-2"></i> ورود
+            <!-- ===== SPECULAR BUTTON ===== -->
+            <button type="submit" class="specular-button" id="loginBtn">
+                <span class="shine"></span>
+                <span class="glow-line"></span>
+                <span class="specular-button__label">
+                    <i class="fas fa-sign-in-alt me-2"></i> Log In
+                </span>
             </button>
         </form>
 
-        <div class="text-center mt-4">
-            <span>حساب کاربری ندارید؟ </span>
-            <a href="register.html" class="register-link">ثبت نام کنید</a>
+        <div class="text-center mt-4" style="color: rgba(255,255,255,0.5);">
+            <span>Don't have an account? </span>
+            <a href="register.html" class="register-link">Sign Up</a>
         </div>
 
-        <hr class="my-4">
-        <div class="text-center">
-            <small class="text-muted">ورود با حساب تست:</small>
-            <br>
-            <small class="text-muted">📧 test@example.com</small>
-            <br>
-            <small class="text-muted">🔑 password123</small>
+        <hr class="divider">
+
+        <div class="test-credentials">
+            <span>Demo account:</span><br>
+            <span>📧 test@example.com</span> &nbsp;·&nbsp; <span>🔑 password123</span>
         </div>
     </div>
 
     <script>
+        // ============================================================
+        //  توابع مربوط به Specular Button
+        // ============================================================
+
+        // تابع برای ردیابی ماوس و اعمال افکت شاین
+        function setupSpecularButton(button) {
+            if (!button) return;
+
+            const shine = button.querySelector('.shine');
+            if (!shine) return;
+
+            // دنبال کردن ماوس
+            button.addEventListener('mousemove', function(e) {
+                const rect = this.getBoundingClientRect();
+                const x = ((e.clientX - rect.left) / rect.width) * 100;
+                const y = ((e.clientY - rect.top) / rect.height) * 100;
+                shine.style.setProperty('--mouse-x', x + '%');
+                shine.style.setProperty('--mouse-y', y + '%');
+            });
+
+            // وقتی ماوس خارج می‌شود، شاین مخفی شود
+            button.addEventListener('mouseleave', function() {
+                shine.style.opacity = '0';
+            });
+
+            // وقتی ماوس وارد می‌شود، شاین نمایش داده شود
+            button.addEventListener('mouseenter', function() {
+                shine.style.opacity = '1';
+            });
+        }
+
+        // راه‌اندازی تمام دکمه‌های Specular در صفحه
+        function initAllSpecularButtons() {
+            document.querySelectorAll('.specular-button').forEach(btn => {
+                setupSpecularButton(btn);
+            });
+        }
+
+        // ============================================================
+        //  توابع مربوط به فرم ورود
+        // ============================================================
+
         function togglePassword() {
             const password = document.getElementById('password');
             const icon = document.getElementById('passwordIcon');
@@ -125,71 +450,12 @@
             }
         }
 
-        document.getElementById('loginForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const email = document.getElementById('email').value.trim();
-            const password = document.getElementById('password').value;
-            const btn = document.getElementById('loginBtn');
-            
-            if (!email || !password) {
-                showAlert('لطفاً همه فیلدها را پر کنید', 'danger');
-                return;
-            }
-            
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> در حال ورود...';
-            
-            try {
-                // Route: POST /users/login
-                const response = await fetch('http://localhost:8000/api/users/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password })
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    // ===== اصلاح: اطمینان از اینکه توکن به صورت string ذخیره می‌شود =====
-                    const token = data.token || data.access_token || data.data?.token;
-                    
-                    if (!token) {
-                        showAlert('❌ توکن دریافت نشد!', 'danger');
-                        btn.disabled = false;
-                        btn.innerHTML = '<i class="fas fa-sign-in-alt me-2"></i> ورود';
-                        return;
-                    }
-                    
-                    localStorage.setItem('api_token', token);  // ← به صورت string
-                    localStorage.setItem('user_name', data.user?.name || data.name || 'کاربر');
-                    localStorage.setItem('user_email', data.user?.email || data.email || '');
-                    localStorage.setItem('user_id', data.user?.id || data.id || 1);
-                    
-                    console.log('✅ Token saved:', localStorage.getItem('api_token'));  // برای دیباگ
-                    
-                    showAlert('✅ ورود موفق! در حال انتقال...', 'success');
-                    setTimeout(() => {
-                        window.location.href = 'dashboard.html';
-                    }, 1000);
-                } else {
-                    showAlert(data.message || '❌ ایمیل یا رمز عبور اشتباه است', 'danger');
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="fas fa-sign-in-alt me-2"></i> ورود';
-                }
-            } catch (error) {
-                showAlert('❌ خطا در ارتباط با سرور', 'danger');
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-sign-in-alt me-2"></i> ورود';
-            }
-        });
-
         function showAlert(message, type) {
             const container = document.getElementById('alertContainer');
             container.innerHTML = `
                 <div class="alert alert-${type} alert-dismissible fade show" role="alert">
                     ${message}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
             `;
             setTimeout(() => {
@@ -198,9 +464,99 @@
             }, 5000);
         }
 
-        // پر کردن خودکار با حساب تست
-        document.getElementById('email').value = 'test@example.com';
-        document.getElementById('password').value = 'password123';
+        // ============================================================
+        //  رویدادهای اصلی
+        // ============================================================
+
+        // راه‌اندازی دکمه‌های Specular بعد از بارگذاری صفحه
+        document.addEventListener('DOMContentLoaded', function() {
+            initAllSpecularButtons();
+            
+            // دکمه ورود را هم به‌صورت دستی تنظیم می‌کنیم
+            const loginBtn = document.getElementById('loginBtn');
+            if (loginBtn) {
+                setupSpecularButton(loginBtn);
+            }
+        });
+
+        // ارسال فرم
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value;
+            const btn = document.getElementById('loginBtn');
+
+            if (!email || !password) {
+                showAlert('Please fill in all fields.', 'danger');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = `
+                <span class="spinner-border spinner-border-sm me-2"></span>
+                <span class="specular-button__label">Logging in...</span>
+            `;
+
+            try {
+                const response = await fetch('http://localhost:8000/api/users/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    const token = data.token || data.access_token || data.data?.token;
+
+                    if (!token) {
+                        showAlert('❌ No token received from server.', 'danger');
+                        btn.disabled = false;
+                        btn.innerHTML = `
+                            <span class="specular-button__label">
+                                <i class="fas fa-sign-in-alt me-2"></i> Log In
+                            </span>
+                        `;
+                        return;
+                    }
+
+                    localStorage.setItem('api_token', token);
+                    localStorage.setItem('user_name', data.user?.name || data.name || 'User');
+                    localStorage.setItem('user_email', data.user?.email || data.email || '');
+                    localStorage.setItem('user_id', data.user?.id || data.id || 1);
+
+                    console.log('✅ Token saved:', localStorage.getItem('api_token'));
+
+                    showAlert('✅ Login successful! Redirecting...', 'success');
+                    setTimeout(() => {
+                        window.location.href = 'dashboard.html';
+                    }, 1000);
+                } else {
+                    showAlert(data.message || '❌ Invalid email or password.', 'danger');
+                    btn.disabled = false;
+                    btn.innerHTML = `
+                        <span class="specular-button__label">
+                            <i class="fas fa-sign-in-alt me-2"></i> Log In
+                        </span>
+                    `;
+                }
+            } catch (error) {
+                showAlert('❌ Server connection error: ' + error.message, 'danger');
+                btn.disabled = false;
+                btn.innerHTML = `
+                    <span class="specular-button__label">
+                        <i class="fas fa-sign-in-alt me-2"></i> Log In
+                    </span>
+                `;
+            }
+        });
+
+        // Auto-fill demo credentials
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('email').value = 'test@example.com';
+            document.getElementById('password').value = 'password123';
+        });
     </script>
 </body>
 </html>
