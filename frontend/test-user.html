@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<header>
+    <meta charset="UTF-8">
+</header>
+<html>
+<head>
+    <title>Test User</title>
+    <style>
+        body {
+            background: #1a1a2e;
+            color: white;
+            font-family: Arial;
+            padding: 20px;
+        }
+        pre {
+            background: #2d2d44;
+            padding: 15px;
+            border-radius: 8px;
+            overflow: auto;
+        }
+        .success {
+            color: #34d399;
+        }
+        .error {
+            color: #f87171;
+        }
+        button {
+            background: #6c5ce7;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 تست اطلاعات کاربر</h1>
+    <button onclick="testUser()">📋 دریافت اطلاعات کاربر</button>
+    <div id="result"></div>
+
+    <script>
+        async function testUser() {
+            const token = localStorage.getItem('api_token');
+            const result = document.getElementById('result');
+
+            if (!token) {
+                result.innerHTML = '<p class="error">❌ توکن وجود ندارد! لطفاً وارد شوید.</p>';
+                return;
+            }
+
+            result.innerHTML = '<p>⏳ در حال دریافت اطلاعات...</p>';
+
+            try {
+                const res = await fetch('http://localhost:8000/api/user', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    result.innerHTML = `
+                        <div class="success">✅ اطلاعات کاربر دریافت شد</div>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                        <p><strong>Role:</strong> ${data.role || 'نامشخص'}</p>
+                        ${data.role === 'admin' ? '<p class="success">✅ شما ادمین هستید! به <a href="admin.html" style="color:#a78bfa;">admin.html</a> بروید.</p>' : '<p class="error">❌ شما ادمین نیستید. Role: ' + data.role + '</p>'}
+                    `;
+                } else {
+                    result.innerHTML = `<p class="error">❌ خطا: ${data.message || 'مشکل در دریافت اطلاعات'}</p>`;
+                }
+            } catch (err) {
+                result.innerHTML = `<p class="error">❌ خطا در ارتباط: ${err.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
