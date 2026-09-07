@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\User\UserIsNotBan;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -14,7 +15,12 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->api(prepend: [
-            \App\Http\Middleware\CorsMiddleware::class,
+            \App\Http\Middleware\CorsMiddleware::class, 
+            
+        ]);
+
+        $middleware->alias([
+            'not.banned' => UserIsNotBan::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -390,7 +390,6 @@ class DocumentController extends Controller
 
         $session = ChatSession::find($document->chat_session_id);
         
-        // is document for the user or not? 
         if (!$session || $session->user_id !== $user->id) {
             return response()->json([
                 'message' => 'You do not have permission to delete this document'
