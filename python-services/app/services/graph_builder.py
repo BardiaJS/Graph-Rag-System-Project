@@ -1,84 +1,243 @@
-from typing import List, Dict, Any
-import hashlib
-import json
+from typing import Any, Dict, List
+
+from app.services.neo4j_service import Neo4jService
+
 
 class GraphBuilder:
-    """ساخت گراف دانش از اسناد استخراج شده"""
-    
-    def __init__(self, neo4j_driver):
+    """
+    ساخت Knowledge Graph در Neo4j.
+
+    Entity ID generation باید با Neo4jService
+    یکسان باشد.
+    """
+
+    def __init__(
+        self,
+        neo4j_driver,
+    ):
         self.driver = neo4j_driver
-    
-    def build_graph_from_document(self, doc_data: Dict[str, Any], doc_id: int):
-        """ساخت گراف از یک سند"""
-        
+
+    def build_graph_from_document(
+        self,
+        doc_data: Dict[str, Any],
+        doc_id: int,
+    ) -> Dict[str, Any]:
+
+        title = doc_data.get(
+            "title",
+            f"Document_{doc_id}",
+        )
+
+        text = doc_data.get(
+            "full_text",
+            "",
+        )
+
+        entities = self._extract_entities(
+            text
+        )
+
         with self.driver.session() as session:
-            # ایجاد گره سند
-            session.run("""
-                CREATE (d:Document {
-                    id: $doc_id,
-                    title: $title,
-                    created_at: datetime()
-                })
-            """, {
-                'doc_id': doc_id,
-                'title': doc_data.get('title', f'Document_{doc_id}')
-            })
-            
-            # استخراج موجودیت‌ها
-            entities = self._extract_entities(doc_data['pages'])
-            
-            # ایجاد گره‌های موجودیت و روابط
+
+            session.run(
+                """
+                MERGE (d:Document {id: $doc_id})
+                SET
+                    d.title = $title,
+                    d.updated_at = datetime()
+                ON CREATE SET
+                    d.created_at = datetime()
+                """,
+                {
+                    "doc_id": doc_id,
+                    "title": title,
+                },
+            )
+
             for entity in entities:
-                session.run("""
-                    MATCH (d:Document {id: $doc_id})
-                    CREATE (e:Entity {
-                        id: $entity_id,
-                        name: $name,
-                        type: $type,
-                        description: $description
-                    })
-                    CREATE (d)-[:CONTAINS]->(e)
-                """, {
-                    'doc_id': doc_id,
-                    'entity_id': f"entity_{hashlib.md5(entity['name'].encode()).hexdigest()}",
-                    'name': entity['name'],
-                    'type': entity.get('type', 'Concept'),
-                    'description': entity.get('description', '')
-                })
-    
-    def _extract_entities(self, pages: List[Dict]) -> List[Dict]:
-        """استخراج موجودیت‌ها از متن (با الگوهای ساده)"""
-        entities = []
-        
-        # برای شروع، از الگوهای ساده استفاده می‌کنیم
-        # بعداً می‌توانیم از NER استفاده کنیم
-        patterns = {
-            'method': r'\b(method|approach|technique|algorithm)\b',
-            'dataset': r'\b(dataset|data|benchmark)\b',
-            'metric': r'\b(accuracy|precision|recall|f1|score)\b'
+
+                name = entity["name"]
+                entity_type = entity["type"]
+
+                entity_id = (
+                    Neo4jService.make_entity_id(
+                        name,
+                        entity_type,
+                    )
+                )
+
+                session.run(
+                    """
+                    MERGE (
+                        e:Entity {id: $entity_id}
+                    )
+
+                    SET
+                        e.name = $name,
+                        e.type = $type,
+                        e.description = $description,
+                        e.updated_at = datetime()
+
+                    ON CREATE SET
+                        e.created_at = datetime()
+
+                    WITH e
+
+                    MATCH (
+                        d:Document {id: $doc_id}
+                    )
+
+                    MERGE (
+                        d
+                    )-[:CONTAINS]->(e)
+                    """,
+                    {
+                        "doc_id": doc_id,
+                        "entity_id": entity_id,
+                        "name": name,
+                        "type": entity_type,
+                        "description": entity.get(
+                            "description",
+                            "",
+                        ),
+                    },
+                )
+
+        return {
+            "entities": len(entities)
         }
-        
-        for page in pages:
-            for col in page.get('content', []):
-                text = col.get('text', '')
-                
-                for entity_type, pattern in patterns.items():
-                    import re
-                    matches = re.findall(pattern, text, re.IGNORECASE)
-                    for match in matches:
-                        entities.append({
-                            'name': match,
-                            'type': entity_type,
-                            'description': ''
-                        })
-        
-        # حذف تکراری‌ها
-        unique_entities = []
+
+    # ==========================================================
+    # Entity extraction
+    # ==========================================================
+
+    def _extract_entities(
+        self,
+        text: str,
+    ) -> List[Dict[str, Any]]:
+
+        if not text:
+            return []
+
+        patterns = {
+            "technology": [
+                "Python",
+                "TensorFlow",
+                "PyTorch",
+                "Keras",
+                "scikit-learn",
+                "Transformers",
+                "GPT",
+                "BERT",
+                "LLM",
+                "NLP",
+                "CNN",
+                "RNN",
+                "LSTM",
+                "GAN",
+                "VAE",
+                "MLP",
+                "SVM",
+                "XGBoost",
+                "LightGBM",
+                "CatBoost",
+            ],
+
+            "organization": [
+                "Google",
+                "Microsoft",
+                "Amazon",
+                "OpenAI",
+                "DeepMind",
+                "Meta",
+                "IBM",
+                "Intel",
+                "NVIDIA",
+                "AMD",
+                "Apple",
+                "Stanford",
+                "MIT",
+                "Berkeley",
+                "Oxford",
+                "Cambridge",
+            ],
+
+            "concept": [
+                "machine learning",
+                "deep learning",
+                "artificial intelligence",
+                "neural network",
+                "computer vision",
+                "natural language processing",
+                "reinforcement learning",
+                "transfer learning",
+                "federated learning",
+            ],
+
+            "metric": [
+                "accuracy",
+                "precision",
+                "recall",
+                "F1-score",
+                "AUC",
+                "ROC",
+                "perplexity",
+                "BLEU",
+                "ROUGE",
+                "MSE",
+                "MAE",
+                "RMSE",
+            ],
+
+            "dataset": [
+                "dataset",
+                "benchmark",
+                "corpus",
+                "SQuAD",
+                "ImageNet",
+                "COCO",
+                "MNIST",
+            ],
+        }
+
+        entities = []
         seen = set()
-        for entity in entities:
-            key = f"{entity['name']}_{entity['type']}"
-            if key not in seen:
-                seen.add(key)
-                unique_entities.append(entity)
-        
-        return unique_entities
+
+        for entity_type, names in patterns.items():
+
+            for name in names:
+
+                pattern = (
+                    r"(?<!\w)"
+                    + __import__("re").escape(name)
+                    + r"(?!\w)"
+                )
+
+                if __import__("re").search(
+                    pattern,
+                    text,
+                    __import__("re").IGNORECASE,
+                ):
+
+                    key = (
+                        entity_type,
+                        name.lower(),
+                    )
+
+                    if key in seen:
+                        continue
+
+                    seen.add(key)
+
+                    entities.append(
+                        {
+                            "name": name,
+                            "type": entity_type,
+                            "description": (
+                                f"{name} extracted "
+                                f"from document"
+                            ),
+                        }
+                    )
+
+        return entities

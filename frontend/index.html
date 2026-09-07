@@ -36,14 +36,35 @@
     </div>
 
     <script>
-        // بررسی توکن
         const token = localStorage.getItem('api_token');
-        
+
         if (token) {
-            // اگر توکن وجود دارد، به داشبورد برو
-            window.location.href = 'dashboard.html';
+            fetch('http://localhost:8000/api/user', {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(res => {
+                if (!res.ok) {
+                    window.location.href = 'login.html';
+                    return;
+                }
+                return res.json();
+            })
+            .then(data => {
+                if (data && data.role === 'admin') {
+                    window.location.href = 'admin.html';
+                } else if (data) {
+                    window.location.href = 'dashboard.html';
+                } else {
+                    window.location.href = 'login.html';
+                }
+            })
+            .catch(() => {
+                window.location.href = 'login.html';
+            });
         } else {
-            // اگر توکن وجود ندارد، به صفحه ورود برو
             window.location.href = 'login.html';
         }
     </script>
