@@ -126,31 +126,42 @@ class ProcessDocumentRequest(BaseModel):
 
 @app.post("/process")
 async def process_document(request: ProcessDocumentRequest):
-    processor = DocumentProcessor(request.file_path , request.user_id, request.document_ids[0])
-    extracted_data = processor.text_extraction()
-    extracted_image = processor.image_extraction()
-    chunk_data = processor.chunk_service(extracted_data["pages"])
-    print("\n========== OVERLAP DEBUG ==========")
 
-    for i in range(3):
-        current = chunk_data[i]["text"]
-        next_chunk = chunk_data[i + 1]["text"]
+    processor = DocumentProcessor(
+        request.file_path,
+        request.user_id,
+        request.document_ids[0]
+    )
 
-        print(f"\n--- Chunk {i} END ---")
-        print(current[-150:])
+    structure = processor.structure_extraction()
 
-        print(f"\n--- Chunk {i + 1} START ---")
-        print(next_chunk[:150])
+    print("\n========== NORMALIZED STRUCTURE ==========\n")
 
-    print("====================================\n")
-    
+    for block in structure["blocks"][:40]:
+
+        print(
+            f"PAGE: {block['page_number']} | "
+            f"TYPE: {block['content_type']} | "
+            f"HEADER LEVEL: {block['header_level']}"
+        )
+
+        if block["text"]:
+            print(block["text"][:300])
+
+        if block["content_type"] == "picture":
+            print("IMAGE:", block["image"])
+
+        if block["content_type"] == "table":
+            print("TABLE:", block["table"])
+
+        print("-" * 80)
+
     return {
         "status": "success",
-        "pages": extracted_data["page_count"],
-        "image": extracted_image,
-        "chunks": chunk_data
+        "document_id": structure["document_id"],
+        "pages": structure["page_count"],
+        "blocks": structure["blocks"],
     }
-
 
 
     
