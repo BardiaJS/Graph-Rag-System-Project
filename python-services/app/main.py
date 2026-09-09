@@ -19,6 +19,7 @@ import os
 import logging
 from app.services.document_processor import DocumentProcessor
 from dotenv import load_dotenv
+from app.services.chunk_evaluator import ChunkEvaluator
 from fastapi.responses import JSONResponse
 
 
@@ -126,16 +127,36 @@ class ProcessDocumentRequest(BaseModel):
 
 @app.post("/process")
 async def process_document(request: ProcessDocumentRequest):
-
-    processor = DocumentProcessor(
-        request.file_path,
-        request.user_id,
-        request.document_ids[0]
-    )
-
+    processor = DocumentProcessor(request.file_path , request.user_id, request.document_ids[0])
+    extracted_data = processor.text_extraction()
+    extracted_image = processor.image_extraction()
+    chunk_data = processor.chunk_service(extracted_data["pages"])
     structure = processor.structure_extraction()
+    
+    print("\n========== OVERLAP DEBUG ==========")
 
-    print("\n========== NORMALIZED STRUCTURE ==========\n")
+    for i in range(3):
+        current = chunk_data[i]["text"]
+        next_chunk = chunk_data[i + 1]["text"]
+
+        print(f"\n--- Chunk {i} END ---")
+        print(current[-150:])
+
+        print(f"\n--- Chunk {i + 1} START ---")
+        print(next_chunk[:150])
+
+    print("====================================\n")
+
+    print(extracted_data["pages"][0]["text"])
+
+
+    print("\n========== STRUCTURE DEBUG ==========")
+
+    for page in extracted_data["pages"]:
+        print(f"\n========== PAGE {page['page_number']} ==========")
+        print(page["text"][:1500])
+
+    print("======================================\n")
 
     for block in structure["blocks"][:40]:
 
@@ -156,12 +177,84 @@ async def process_document(request: ProcessDocumentRequest):
 
         print("-" * 80)
 
+
+        evaluator = ChunkEvaluator(chunk_data)
+
+        evaluation = evaluator.evaluate()
+
+        print("\n========== CHUNK EVALUATION ==========\n")
+
+        for key, value in evaluation.items():
+            print(f"{key}: {value}")
+
+
+        boundaries = evaluator.evaluate_boundaries()
+
+        summary = evaluator.summarize_boundaries(boundaries)
+
+        print("\n========== BOUNDARY SUMMARY ==========\n")
+
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+
+
+        print("\n========== SUSPICIOUS BOUNDARIES ==========\n")
+
+        for boundary in boundaries:
+
+            if boundary["category"] in {
+                "WORD_SPLIT",
+                "SUSPICIOUS",
+            }:
+
+                print(
+                    f"\n"
+                    f"{boundary['current_chunk']} -> "
+                    f"{boundary['next_chunk']}"
+                )
+
+                print(
+                    f"PAGE: "
+                    f"{boundary['current_page']} -> "
+                    f"{boundary['next_page']}"
+                )
+
+                print(
+                    f"CATEGORY: "
+                    f"{boundary['category']}"
+                )
+
+                print(
+                    f"OVERLAP: "
+                    f"{boundary['overlap']}"
+                )
+
+                print(
+                    f"CURRENT END: "
+                    f"{boundary['current_end']}"
+                )
+
+                print(
+                    f"NEXT START: "
+                    f"{boundary['next_start']}"
+                )
+
+
+
+
     return {
         "status": "success",
-        "document_id": structure["document_id"],
-        "pages": structure["page_count"],
-        "blocks": structure["blocks"],
+        "pages": extracted_data["page_count"],
+        "image": extracted_image,
+        "chunks": chunk_data,
+        "structure": {
+            "document_id": structure["document_id"],
+            "pages": structure["page_count"],
+            "blocks": structure["blocks"],
+        }
     }
+
+
 
 
     
