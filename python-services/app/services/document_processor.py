@@ -4,6 +4,7 @@ from .text_extractor import PdfTextExtractor
 from .image_extractor import ImageExtractor
 from .chunking_service import ChunkingService
 from .document_structure import DocumentStructureExtractor
+from .embedding_service import EmbeddingService
 
 
 class DocumentProcessor:
@@ -16,15 +17,13 @@ class DocumentProcessor:
         self.user_id = user_id
         self.document_id = document_id
 
-        self.text_extractor = PdfTextExtractor(
-            self.file_path
-        )
-
+        self.text_extractor = PdfTextExtractor(self.file_path)
         self.image_extractor = ImageExtractor(
             self.file_path,
             user_id,
-            document_id
+            document_id,
         )
+        self.embedding_service = EmbeddingService()
 
     def text_extraction(self):
         return self.text_extractor.extract()
@@ -35,15 +34,14 @@ class DocumentProcessor:
     def structure_extraction(self):
         extractor = DocumentStructureExtractor(
             self.file_path,
-            self.document_id
+            self.document_id,
         )
-
         return extractor.extract()
 
     def chunk_service(self, pages):
-        chunk_extractor = ChunkingService(
-            pages,
-            self.document_id
-        )
-
+        chunk_extractor = ChunkingService(pages, self.document_id)
         return chunk_extractor.chunk()
+
+    def embedding(self, chunks):
+        """چانک‌ها را embed می‌کند و نتیجه را برمی‌گرداند."""
+        return self.embedding_service.embed_chunks(chunks)
