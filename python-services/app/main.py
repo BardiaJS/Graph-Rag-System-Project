@@ -19,7 +19,7 @@ import os
 import logging
 from app.services.document_processor import DocumentProcessor
 from dotenv import load_dotenv
-from app.services.chunk_evaluator import ChunkEvaluator
+# from app.services.chunk_evaluator import ChunkEvaluator
 from fastapi.responses import JSONResponse
 
 
@@ -88,31 +88,31 @@ except Exception as e:
 RAG_AVAILABLE = False
 rag_service = None
 
-try:
-    from app.services.agentic_rag_service import (
-        AgenticRAGService as RAGService
-    )
+# try:
+#     from app.services.agentic_rag_service import (
+#         AgenticRAGService as RAGService
+#     )
 
-    rag_service = RAGService()
+#     rag_service = RAGService()
 
-    # Debug Qdrant documents on startup
-    try:
-        rag_service.debug_documents()
-    except Exception as e:
-        logger.warning(
-            f"⚠️ Qdrant debug failed during startup: {e}"
-        )
+#     # Debug Qdrant documents on startup
+#     try:
+#         rag_service.debug_documents()
+#     except Exception as e:
+#         logger.warning(
+#             f"⚠️ Qdrant debug failed during startup: {e}"
+#         )
 
-    RAG_AVAILABLE = True
+#     RAG_AVAILABLE = True
 
-    logger.info(
-        "✅ RAG Service initialized successfully"
-    )
+#     logger.info(
+#         "✅ RAG Service initialized successfully"
+#     )
 
-except Exception as e:
-    logger.exception(
-        "❌ Failed to initialize RAG Service"
-    )
+# except Exception as e:
+#     logger.exception(
+#         "❌ Failed to initialize RAG Service"
+#     )
 
 
 # ============================================================
@@ -133,70 +133,11 @@ async def process_document(request: ProcessDocumentRequest):
         request.document_ids[0],
     )
 
-    # ---------- Extraction ----------
-    extracted_data = processor.text_extraction()
-    extracted_image = processor.image_extraction()
-    structure = processor.structure_extraction()
 
-    # ---------- Chunking ----------
-    chunk_data = processor.chunk_service(extracted_data["pages"])
+    processor.extract_text()
+    processor.extract_image()
 
-    # ---------- Embedding ----------
+    
 
-    embeddings = processor.embedding(chunk_data)
 
-    print("\n========== EMBEDDING RESULTS ==========\n")
-
-    print("TOTAL EMBEDDINGS:", len(embeddings))
-    print("VECTOR DIMENSION:", len(embeddings[0]))
-
-    target_index = 0
-
-    most_similar_index, similarities = (
-        processor.embedding_service.most_similar(
-            embeddings,
-            target_index=target_index
-        )
-    )
-
-    print("\n========== MOST SIMILAR CHUNK ==========\n")
-
-    print("TARGET CHUNK:", target_index)
-    print(
-        "TARGET PAGE:",
-        chunk_data[target_index]["page_number"]
-    )
-
-    print(
-        "TARGET TEXT:\n",
-        chunk_data[target_index]["text"][:500]
-    )
-
-    print("\nMOST SIMILAR CHUNK:", most_similar_index)
-
-    print(
-        "MOST SIMILAR PAGE:",
-        chunk_data[most_similar_index]["page_number"]
-    )
-
-    print(
-        "SIMILARITY:",
-        round(float(similarities[most_similar_index]), 4)
-    )
-
-    print(
-        "MOST SIMILAR TEXT:\n",
-        chunk_data[most_similar_index]["text"][:500]
-    )
-
-    return {
-        "status": "success",
-        "pages": extracted_data["page_count"],
-        "image": extracted_image,
-        "chunks": chunk_data,
-        "structure": {
-            "document_id": structure["document_id"],
-            "pages": structure["page_count"],
-            "blocks": structure["blocks"],
-        },
-    }
+    
