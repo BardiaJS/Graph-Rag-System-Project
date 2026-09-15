@@ -133,11 +133,28 @@ async def process_document(request: ProcessDocumentRequest):
         request.document_ids[0],
     )
 
+    doc = processor.extract_document()
+    markdown = doc.export_to_markdown()
+    doc_dict = doc.export_to_dict()
 
-    processor.extract_text()
     processor.extract_image()
 
-    
+    # ==== DEBUG ====
+    print("=" * 60)
+    print("DOC_DICT TOP-LEVEL KEYS:", list(doc_dict.keys()))
+    print("NUM TEXTS:", len(doc_dict.get("texts", [])))
+    print("NUM TABLES:", len(doc_dict.get("tables", [])))
+    print("NUM PICTURES:", len(doc_dict.get("pictures", [])))
+    print("-" * 60)
+    print("MARKDOWN PREVIEW (first 3000 chars):")
+    print(markdown[:3000])
+    print("=" * 60)
+    # ==== END DEBUG ====
 
-
-    
+    return {
+        "status": "ok",
+        "markdown_preview": markdown[:3000],
+        "num_texts": len(doc_dict.get("texts", [])),
+        "num_tables": len(doc_dict.get("tables", [])),
+        "num_pictures": len(doc_dict.get("pictures", [])),
+    }
