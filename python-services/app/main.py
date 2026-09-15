@@ -12,13 +12,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-
+from app.services.extractor.docling_extractor import DoclingExtractor
 import redis
 import json
 import os
 import logging
 from app.services.document_processor import DocumentProcessor
 from dotenv import load_dotenv
+from app.services.structure_validator import StructureValidator
 # from app.services.chunk_evaluator import ChunkEvaluator
 from fastapi.responses import JSONResponse
 
@@ -125,6 +126,30 @@ class ProcessDocumentRequest(BaseModel):
     document_ids: List[int]
 
 
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import List
+
+from app.services.document_processor import DocumentProcessor
+
+
+app = FastAPI(title="Graph RAG - PDF Processor")
+
+
+# ============================================================
+# Pydantic Models
+# ============================================================
+class ProcessDocumentRequest(BaseModel):
+    user_id: int
+    session_id: int
+    file_path: str
+    document_ids: List[int]
+
+
+# ============================================================
+# Endpoints
+# ============================================================
+
 @app.post("/process")
 async def process_document(request: ProcessDocumentRequest):
     processor = DocumentProcessor(
@@ -132,29 +157,21 @@ async def process_document(request: ProcessDocumentRequest):
         request.user_id,
         request.document_ids[0],
     )
-
     doc = processor.extract_document()
-    markdown = doc.export_to_markdown()
-    doc_dict = doc.export_to_dict()
-
+    standard = processor.extract_standard()
     processor.extract_image()
 
-    # ==== DEBUG ====
-    print("=" * 60)
-    print("DOC_DICT TOP-LEVEL KEYS:", list(doc_dict.keys()))
-    print("NUM TEXTS:", len(doc_dict.get("texts", [])))
-    print("NUM TABLES:", len(doc_dict.get("tables", [])))
-    print("NUM PICTURES:", len(doc_dict.get("pictures", [])))
-    print("-" * 60)
-    print("MARKDOWN PREVIEW (first 3000 chars):")
-    print(markdown[:3000])
-    print("=" * 60)
-    # ==== END DEBUG ====
+    # اعتبارسنجی
+    validator = StructureValidator(standard)
+    validation = validator.validate()
 
     return {
         "status": "ok",
-        "markdown_preview": markdown[:3000],
-        "num_texts": len(doc_dict.get("texts", [])),
-        "num_tables": len(doc_dict.get("tables", [])),
-        "num_pictures": len(doc_dict.get("pictures", [])),
+        "document_id": standard.get("document_id"),
+        "title": standard.get("title"),
+        "stats": standard.get("stats"),
+        "num_elements": len(standard.get("elements", [])),
+        "num_sections": len(standard.get("sections", [])),
+        "validation": validation,
+        "elements_preview": standard.get("elements", [])[:10],
     }
