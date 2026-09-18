@@ -287,31 +287,155 @@ class DoclingInspector:
     # DETECTORS
     # ============================================================
     def _looks_like_heading(self, text: str, label: str) -> bool:
-        """تشخیص heading هایی که docling به عنوان list_item دیده."""
-        if label != "list_item":
+        """
+        تشخیص heading هایی که docling به عنوان list_item یا paragraph دیده.
+
+        قوانین:
+        - باید کوتاه باشه (< 100 کاراکتر)
+        - باید با ":" تموم بشه
+        - نباید نویسنده باشه
+        - نباید اسم فایل/مسیر باشه
+        - نباید URL باشه
+        - باید یکی از الگوهای heading رو داشته باشه
+        """
+
+        # ========================================================
+        # 0. فقط list_item و paragraph رو چک کن
+        # ========================================================
+
+        if label not in ("list_item", "paragraph"):
             return False
 
         text = text.strip()
 
+        if not text:
+            return False
+
+        # ========================================================
+        # 1. فیلتر طول
+        # ========================================================
+
         if len(text) > 100:
             return False
 
-        if not text.endswith(":"):
+        if len(text) < 3:
             return False
 
-        # 1) "X. Title (op) :"
+        # ========================================================
+        # 2. فیلتر نویسنده‌ها (affiliations)
+        # ========================================================
+
+        # "P. Wrench ∗ and B. Irwin †"
+        if re.search(r"[∗†‡§¶]", text):
+            return False
+
+        # "P. Wrench" یا "J. Smith"
+        if re.match(r"^[A-Z]\.\s*[A-Z][a-z]+", text):
+            return False
+
+        # "John Smith, Jane Doe, and Bob"
+        if re.match(r"^[A-Z][a-z]+,?\s+(and\s+)?[A-Z][a-z]+", text) and len(text) < 80:
+            return False
+
+        # "Smith et al." یا "et al."
+        if re.search(r"\bet\s+al\.?", text, re.IGNORECASE):
+            return False
+
+        # ایمیل
+        if re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", text):
+            return False
+
+        # ========================================================
+        # 3. فیلتر URL و مسیر فایل
+        # ========================================================
+
+        # http:// یا https:// یا ftp://
+        if re.search(r"(https?|ftp)://", text):
+            return False
+
+        # www.something
+        if re.search(r"\bwww\.\w+\.\w+", text):
+            return False
+
+        # مسیر فایل: C:\... یا /home/... یا ./...
+        if re.search(r"[A-Z]:\\|^/[\w/]+|^\./", text):
+            return False
+
+        # ========================================================
+        # 4. فیلتر براکت‌ها (reference citations)
+        # ========================================================
+
+        # "[1]", "[23]", "[1,2,3]"
+        if re.match(r"^\[\d+([,\s-]+\d+)*\]\s*$", text):
+            return False
+
+        # "Figure 1:" یا "Table 2:" یا "Eq. 3:"
+        if re.match(r"^(Figure|Fig\.?|Table|Eq\.?|Equation|Algorithm)\s*\d+\s*[:.]", text, re.IGNORECASE):
+            return False
+
+        # ========================================================
+        # 5. شرط اصلی: باید با ":" تموم بشه
+        # ========================================================
+
+        # استثنا: بعضی heading ها ممکنه ":" نداشته باشن
+        # ولی شماره‌دار باشن: "1. INTRODUCTION"
+        has_colon = text.endswith(":")
+        has_numbering = bool(re.match(r"^\d+(\.\d+)*\.?\s+", text))
+
+        if not (has_colon or has_numbering):
+            return False
+
+        # ========================================================
+        # 6. الگوهای heading
+        # ========================================================
+
+        # --------------------------------------------------------
+        # 6.1 شماره‌دار ساده: "1. INTRODUCTION" یا "1.1 Background"
+        # --------------------------------------------------------
+        if re.match(r"^\d+(\.\d+)*\.?\s+[A-Z]", text):
+            # اگه خیلی طولانی نباشه و شبیه جمله نباشه
+            if len(text) < 80 and not re.search(r"[.;]\s+[a-z]", text):
+                return True
+
+        # --------------------------------------------------------
+        # 6.2 "X. Title (op) :"  → "1. Addition (+) :"
+        # --------------------------------------------------------
         if re.match(r"^\d+\.\s+.+\(.+\)\s*:$", text):
             return True
 
-        # 2) "Title (op) :"
+        # --------------------------------------------------------
+        # 6.3 "Title (op) :"  → "Addition Operator (+) :"
+        # --------------------------------------------------------
         if re.search(r"\([^)]+\)\s*:$", text) and len(text) < 80:
             return True
 
-        # 3) "Title Words :" (کوتاه + کلمات کلیدی)
-        if len(text) < 60 and re.match(r"^[A-Za-z][A-Za-z\s,._\-()/+=]*:$", text):
-            text_lower = text.lower()
-            if any(kw in text_lower for kw in self.HEADING_KEYWORDS):
-                return True
+        # --------------------------------------------------------
+        # 6.4 "Title :" با کلمات کلیدی
+        # --------------------------------------------------------
+        if has_colon and len(text) < 60:
+            # باید با حرف شروع بشه (نه رقم)
+            if re.match(r"^[A-Za-z]", text):
+                # باید فقط شامل حروف، فاصله، و علائم ساده باشه
+                if re.match(r"^[A-Za-z][A-Za-z\s,._\-()/+=*&|!?<>]*:$", text):
+                    text_lower = text.lower()
+                    if any(kw in text_lower for kw in self.HEADING_KEYWORDS):
+                        return True
+
+        # --------------------------------------------------------
+        # 6.5 "Syntax :" یا "Example :" (label heading)
+        # --------------------------------------------------------
+        if re.match(r"^(Syntax|Example)\s*:$", text, re.IGNORECASE):
+            return True
+
+        # --------------------------------------------------------
+        # 6.6 شروع با نماد
+        # --------------------------------------------------------
+        if text.startswith(("➢", "▶", "➤", "▪", "●", "·")):
+            return True
+
+        # ========================================================
+        # 7. default
+        # ========================================================
 
         return False
 
@@ -319,32 +443,50 @@ class DoclingInspector:
         """استنتاج سطح heading از روی الگوی متن."""
         text = text.strip()
 
-        # level 3: Syntax / Example
-        if re.match(r"^(Syntax|Example)\s*:", text, re.IGNORECASE):
-            return 3
+        # ========================================================
+        # 1. نمادها (اول چک کن — اینا parent هستن)
+        # ========================================================
 
-        # level 1: شروع با نماد
-        if text.startswith(("➢", "·", "▪", "➤", "▶", "●")):
+        if text.startswith(("➢", "▶", "➤")):
             return 1
-
-        # level 2: "Instanceof Operator :" و "Type Operators :"
-        if re.match(r"^[A-Z][a-zA-Z\s]*(Operator|Operators)\s*(\([^)]*\))?\s*:$", text):
+        if text.startswith(("·", "▪", "●", "◦", "○")):
             return 2
 
-        # level 2: شماره + پرانتز
-        if re.match(r"^\d+\.\s+", text) and re.search(r"\([^)]*\)", text[:60]):
-            return 2
+        # ========================================================
+        # 2. شماره‌گذاری اعشاری (1.1, 1.1.1)
+        # ========================================================
 
-        # level 1: شماره + حرف بزرگ + بدون پرانتز
-        if re.match(r"^\d+\.\s+[A-Z]", text) and not re.search(r"[()\[\]]", text[:60]):
-            return 1
+        # "1.1 Background" → level 2
+        # "1.1.1 Detail" → level 3
+        m = re.match(r"^(\d+(?:\.\d+)+)\.?\s+", text)
+        if m:
+            depth = m.group(1).count(".") + 1
+            return min(depth, 4)
 
-        # level 2: شماره‌دار دیگه
+        # ========================================================
+        # 3. شماره‌گذاری ساده (1. X, 2. Y)
+        # ========================================================
+
+        # نکته: اینا زیر parent (➢ ...) هستن، پس level 2
         if re.match(r"^\d+\.\s+", text):
             return 2
 
-        # level 2: عنوان با پرانتز در انتها
-        if re.search(r"\([^)]+\)\s*:$", text):
+        # ========================================================
+        # 4. Label (Example/Syntax)
+        # ========================================================
+
+        if re.match(r"^(Syntax|Example)\s*:", text, re.IGNORECASE):
+            return 3
+
+        # ========================================================
+        # 5. Operators
+        # ========================================================
+
+        if re.match(r"^[A-Z][a-zA-Z\s]*(Operator|Operators)\s*(\([^)]*\))?\s*:$", text):
             return 2
+
+        # ========================================================
+        # 6. Default
+        # ========================================================
 
         return 1
