@@ -3,6 +3,7 @@ from pathlib import Path
 from .extractor.docling_extractor import DoclingExtractor
 from .extractor.image_extractor import ImageExtractor
 from .semantic_chunker import SemanticChunker
+from .embedding_service import EmbeddingService
 
 
 class DocumentProcessor:
@@ -71,3 +72,4 @@ class DocumentProcessor:
             "stats": chunker.get_stats(chunks),
             "chunks": chunks,
         }
+

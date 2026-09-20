@@ -15,7 +15,8 @@ from dotenv import load_dotenv
 from app.services.document_processor import DocumentProcessor
 from app.services.structure_validator import StructureValidator
 
-
+from app.services.embedding_service import EmbeddingService
+from app.services.vector_service import VectorService
 # ============================================================
 # Logging
 # ============================================================
@@ -477,7 +478,7 @@ async def process_document(request: Optional[ProcessDocumentRequest] = None):
         max_tokens=512,
         min_tokens=100,
         similarity_threshold=0.70,
-        embedding_model="all-MiniLM-L6-v2",
+        embedding_model="BAAI/bge-m3",
         chunk_overlap=50,
     )
 
@@ -494,7 +495,10 @@ async def process_document(request: Optional[ProcessDocumentRequest] = None):
     # ---------------------------------------------------------
     cleaner = ChunkMetadataCleaner()
     clean_chunks = cleaner.clean_all(raw)
-
+    for chunk in clean_chunks:
+        chunk["document_id"] = standard.get("document_id")
+        chunk["user_id"] = request.user_id
+        chunk["session_id"] = request.session_id
     # ---------------------------------------------------------
     # 6. Report
     # ---------------------------------------------------------
@@ -512,20 +516,61 @@ async def process_document(request: Optional[ProcessDocumentRequest] = None):
         small_token_threshold=50,
     )
 
-    # ---------------------------------------------------------
-    # 7. Return
-    # ---------------------------------------------------------
-    return {
-        "status": "ok",
-        "document_id": standard.get("document_id"),
-        "title": standard.get("title"),
-        "stats": standard.get("stats"),
-        "num_elements": len(standard.get("elements", [])),
-        "num_sections": len(standard.get("sections", [])),
-        "validation": validation,
-        "chunking": {
-            "num_chunks": len(clean_chunks),
-            "report": report,
-            "chunks_preview": clean_chunks[:5],
-        },
-    }
+
+        # 7. Embedding
+    try:
+        embedding_service = EmbeddingService(
+            model_name="BAAI/bge-m3",
+            device="cpu",
+            batch_size=16,
+        )
+
+        embedded_chunks = embedding_service.embed_chunks(
+            clean_chunks,
+            text_field="content",
+            show_progress=True,
+        )
+
+        embedding_info = embedding_service.get_info()
+
+    except Exception as e:
+        logger.exception("❌ Embedding failed")
+
+        embedding_info = {
+            "error": str(e),
+        }
+
+        embedded_chunks = clean_chunks
+
+    # 8. Qdrant
+    vector_info = None
+
+    try:
+        vector_service = VectorService(
+            host="localhost",
+            port=6333,
+            collection_name="graph_rag_chunks",
+        )
+
+        vector_service.create_collection(
+            dimensions=embedding_info["dimensions"],
+            recreate=False,
+        )
+
+        vector_service.upsert_chunks(
+            embedded_chunks,
+            document_id=standard.get("document_id"),
+            user_id=request.user_id,
+            session_id=request.session_id,
+        )
+
+        vector_info = vector_service.get_info()
+
+    except Exception as e:
+        logger.warning(
+            f"⚠️ Qdrant failed: {e}"
+        )
+
+        vector_info = {
+            "error": str(e),
+        }

@@ -24,7 +24,10 @@ class SemanticChunker:
         max_tokens: int = 200,
         min_tokens: int = 80,
     ):
-        self.model = SentenceTransformer(model_name)
+        self.model = SentenceTransformer(
+            model_name,
+            device="cpu",
+        )
         self.similarity_threshold = similarity_threshold
         self.max_tokens = max_tokens
         self.min_tokens = min_tokens
