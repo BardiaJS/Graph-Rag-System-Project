@@ -231,7 +231,6 @@ class DocumentController extends Controller
 
         $question = Question::create($validated_data);
 
-        // دریافت Document های مرتبط با سشن که پردازش کامل شده‌اند
         $documentIds = Document::where('chat_session_id', $session->id)
             ->where('processing_status', 'completed')
             ->pluck('id')

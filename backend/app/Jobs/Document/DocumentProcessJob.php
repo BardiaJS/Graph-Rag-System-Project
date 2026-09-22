@@ -69,6 +69,12 @@ class DocumentProcessJob implements ShouldQueue
                     Log::info("Document {$docId} sent to processing service successfully", [
                         'response' => $response->json()
                     ]);
+
+                    $document->update([
+                        'processing_status' => 'completed',
+                        'processed_at' => now(),
+                        'processing_error' => null,
+                    ]);
                     $successCount++;
                 } else {
                     Log::error("Failed to send document {$docId}", [
@@ -102,6 +108,47 @@ class DocumentProcessJob implements ShouldQueue
         // در صورت عدم موفقیت، خطا را ثبت کن
         if ($failedCount > 0 && $successCount === 0) {
             throw new \Exception("All documents failed to process");
+        }
+
+
+
+
+        Log::info('DOCUMENT JOB: before Python', [
+            'document_id' => $docId,
+        ]);
+
+        $response = Http::timeout(300)
+            ->post("{$pythonServiceUrl}/process", [
+                'user_id' => $this->user->id,
+                'session_id' => $this->session->id,
+                'file_path' => $document->file_path,
+                'document_ids' => [$document->id],
+            ]);
+
+        Log::info('DOCUMENT JOB: after Python', [
+            'document_id' => $docId,
+            'status' => $response->status(),
+            'successful' => $response->successful(),
+        ]);
+
+        if ($response->successful()) {
+
+            Log::info('DOCUMENT JOB: before database update', [
+                'document_id' => $docId,
+            ]);
+
+            $document->update([
+                'processing_status' => 'completed',
+                'processed_at' => now(),
+                'processing_error' => null,
+            ]);
+
+            Log::info('DOCUMENT JOB: after database update', [
+                'document_id' => $docId,
+                'status' => $document->fresh()->processing_status,
+            ]);
+
+            $successCount++;
         }
     }
 

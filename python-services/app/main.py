@@ -12,6 +12,8 @@ import logging
 from collections import Counter, defaultdict
 from dotenv import load_dotenv
 
+from pydantic import BaseModel
+from typing import List, Optional
 from app.services.document_processor import DocumentProcessor
 from app.services.structure_validator import StructureValidator
 
@@ -427,6 +429,8 @@ class ChunkMetadataCleaner:
 # ENDPOINT  (ادغام‌شده: info + process)
 # ============================================================
 
+
+# ========================== PDF PROCESSING : CHUNKING AND EMBEDDING ==============================
 @app.post("/process")
 async def process_document(request: Optional[ProcessDocumentRequest] = None):
     """
@@ -574,3 +578,48 @@ async def process_document(request: Optional[ProcessDocumentRequest] = None):
         vector_info = {
             "error": str(e),
         }
+
+
+# ========================== QUESTION EMBEDDING ==============================
+
+
+
+class AskRequest(BaseModel):
+    question: str
+    document_ids: List[int]
+    top_k: int = 5
+    session_id: Optional[int] = None
+
+
+@app.post("/ask")
+def ask(request: AskRequest):
+
+    embedding_service = EmbeddingService(
+        model_name="BAAI/bge-m3",
+        device="cpu",
+        batch_size=16,
+    )
+
+    query_vector = embedding_service.embed_question(
+        request.question
+    )
+
+    vector_service = VectorService(
+        host="localhost",
+        port=6333,
+        collection_name="graph_rag_chunks",
+    )
+
+    results = vector_service.search(
+        query_vector=query_vector,
+        limit=request.top_k,
+        document_ids=request.document_ids,
+    )
+
+    return {
+        "question": request.question,
+        "results": results,
+    }
+
+
+

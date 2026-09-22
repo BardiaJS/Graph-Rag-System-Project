@@ -6,6 +6,9 @@ from qdrant_client.models import (
     Distance,
     VectorParams,
     PointStruct,
+    Filter,
+    FieldCondition,
+    MatchAny,
 )
 
 
@@ -134,23 +137,17 @@ class VectorService:
         self,
         query_vector: List[float],
         limit: int = 5,
-        document_id: Optional[Any] = None,
+        document_ids: Optional[List[Any]] = None,
     ):
         query_filter = None
 
-        if document_id is not None:
-            from qdrant_client.models import (
-                Filter,
-                FieldCondition,
-                MatchValue,
-            )
-
+        if document_ids:
             query_filter = Filter(
                 must=[
                     FieldCondition(
                         key="document_id",
-                        match=MatchValue(
-                            value=document_id
+                        match=MatchAny(
+                            any=document_ids
                         ),
                     )
                 ]

@@ -90,3 +90,19 @@ class EmbeddingService:
             "device": self.device,
             "batch_size": self.batch_size,
         }
+
+
+
+
+
+    def embed_question(self, question: str) -> List[float]:
+
+        question = question.strip()
+
+        if not question:
+            raise ValueError("Question cannot be empty.")
+
+        embedding = self.embed_texts([question])[0]
+
+        return embedding.tolist()
+    
