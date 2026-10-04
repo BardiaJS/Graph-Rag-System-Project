@@ -1,0 +1,319 @@
+/* style.css */
+:root {
+    --sidebar-bg: #1a1a2e;
+    --primary-color: #6c5ce7;
+    --success-color: #00b894;
+    --danger-color: #e17055;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #f0f2f5;
+    overflow: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+    background: var(--sidebar-bg);
+    height: 100vh;
+    overflow-y: auto;
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 250px;
+}
+
+.sidebar .nav-link {
+    color: #a0a0b8;
+    padding: 12px 16px;
+    border-radius: 8px;
+    transition: all 0.3s;
+}
+
+.sidebar .nav-link:hover {
+    background: rgba(108, 92, 231, 0.2);
+    color: #fff;
+}
+
+.sidebar .nav-link.active {
+    background: var(--primary-color);
+    color: #fff;
+}
+
+/* Main Content */
+.main-content {
+    margin-right: 250px;
+    height: 100vh;
+    overflow-y: auto;
+}
+
+/* Drop Zone */
+.drop-zone {
+    border: 2px dashed #dee2e6;
+    border-radius: 12px;
+    padding: 40px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: #fafafa;
+}
+
+.drop-zone.dragover {
+    border-color: var(--primary-color);
+    background: rgba(108, 92, 231, 0.05);
+}
+
+.drop-zone.dragover i {
+    color: var(--primary-color);
+}
+
+/* File List */
+.file-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    margin-bottom: 4px;
+}
+
+.file-item .file-name {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.file-item .file-size {
+    font-size: 12px;
+    color: #6c757d;
+}
+
+.file-item .remove-file {
+    color: var(--danger-color);
+    cursor: pointer;
+    border: none;
+    background: none;
+}
+
+/* Chat */
+.chat-container {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.message {
+    margin-bottom: 16px;
+    display: flex;
+}
+
+.message.user {
+    justify-content: flex-end;
+}
+
+.message.assistant {
+    justify-content: flex-start;
+}
+
+.message .bubble {
+    max-width: 75%;
+    padding: 12px 16px;
+    border-radius: 16px;
+    word-wrap: break-word;
+}
+
+.message.user .bubble {
+    background: var(--primary-color);
+    color: #fff;
+    border-bottom-right-radius: 4px;
+}
+
+.message.assistant .bubble {
+    background: #e9ecef;
+    color: #212529;
+    border-bottom-left-radius: 4px;
+}
+
+.message .sources {
+    font-size: 12px;
+    color: #6c757d;
+    margin-top: 4px;
+    cursor: pointer;
+}
+
+.message .sources:hover {
+    color: var(--primary-color);
+}
+
+/* Loading Spinner */
+.spinner-container {
+    display: flex;
+    justify-content: center;
+    padding: 20px;
+}
+
+/* Status Badge */
+.status-badge {
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 20px;
+}
+
+.status-pending {
+    background: #ffc107;
+    color: #000;
+}
+
+.status-processing {
+    background: #17a2b8;
+    color: #fff;
+}
+
+.status-completed {
+    background: var(--success-color);
+    color: #fff;
+}
+
+.status-failed {
+    background: var(--danger-color);
+    color: #fff;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 100%;
+        height: auto;
+        position: relative;
+    }
+    
+    .main-content {
+        margin-right: 0;
+        height: auto;
+    }
+    
+    .container-fluid {
+        padding: 0;
+    }
+}
+
+
+
+/* ============================================================
+   SPECULAR BUTTON - Vanilla JS
+   ============================================================ */
+
+.specular-button {
+  --sb-radius: 18px;
+  --sb-tint: #ffffff;
+  --sb-tint-opacity: 0;
+  --sb-blur: 0px;
+  --sb-text-color: #f5f5f5;
+
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  margin: 0;
+  font-family: inherit;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: var(--sb-text-color);
+  background: color-mix(in srgb, var(--sb-tint) calc(var(--sb-tint-opacity) * 100%), transparent);
+  border-radius: var(--sb-radius);
+  backdrop-filter: blur(var(--sb-blur));
+  -webkit-backdrop-filter: blur(var(--sb-blur));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 8px 24px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  outline: none;
+  transition: transform 0.15s ease;
+  padding: 14px 30px;
+  font-size: 1rem;
+  text-decoration: none;
+  overflow: hidden;
+}
+
+.specular-button:active {
+  transform: scale(0.97);
+}
+
+.specular-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--sb-text-color) 60%, transparent);
+  outline-offset: 3px;
+}
+
+.specular-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.specular-button:disabled:active {
+  transform: none;
+}
+
+/* سایزها */
+.specular-button--sm {
+  font-size: 0.85rem;
+  padding: 10px 22px;
+}
+
+.specular-button--md {
+  font-size: 1rem;
+  padding: 14px 30px;
+}
+
+.specular-button--lg {
+  font-size: 1.15rem;
+  padding: 18px 40px;
+}
+
+/* ===== افکت Shine ===== */
+.specular-button .shine {
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(
+    circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(255, 255, 255, 0.25) 0%,
+    rgba(255, 255, 255, 0.05) 40%,
+    transparent 70%
+  );
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  border-radius: var(--sb-radius);
+}
+
+.specular-button:hover .shine {
+  opacity: 1;
+}
+
+/* ===== خطوط براق ===== */
+.specular-button .glow-line {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--sb-radius);
+  padding: 1.5px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.2) 0%,
+    rgba(255, 255, 255, 0) 30%,
+    rgba(255, 255, 255, 0) 70%,
+    rgba(255, 255, 255, 0.1) 100%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.specular-button__label {
+  position: relative;
+  z-index: 2;
+}

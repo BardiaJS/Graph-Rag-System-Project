@@ -1,0 +1,9 @@
+php -d memory_limit=512M artisan queue:work --timeout=600 --tries=3
+
+php artisan migrate:fresh
+
+php aritsan serve
+
+sudo lsof -i :8000
+
+kill -9 [PID]

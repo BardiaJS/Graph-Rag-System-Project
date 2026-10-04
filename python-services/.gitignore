@@ -1,0 +1,33 @@
+# توی روت پروژه (همون جایی که هستی)
+cat > .gitignore << 'EOF'
+# Python
+venv/
+env/
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+python-services/venv/
+python-services/**/__pycache__/
+backend/**/__pycache__/
+*.pyc
+EOF

@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph-RAG · Admin Panel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #7c3aed;
+            --primary-light: #a78bfa;
+            --primary-dark: #5b21b6;
+            --bg-start: #0f0c29;
+            --bg-mid: #302b63;
+            --bg-end: #24243e;
+        }
+
+        body {
+            font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg-start);
+            min-height: 100vh;
+            color: #f0f0ff;
+        }
+
+        .navbar-custom {
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 14px 32px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .navbar-custom .brand {
+            color: #f0f0ff;
+            font-weight: 700;
+            font-size: 1.3rem;
+            letter-spacing: -0.3px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .navbar-custom .brand i {
+            color: var(--primary-light);
+            font-size: 1.5rem;
+        }
+
+        .navbar-custom .user-info {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .navbar-custom .user-name {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .specular-button-logout {
+            --sb-radius: 10px;
+            --sb-tint: #ef4444;
+            --sb-tint-opacity: 0.15;
+            --sb-blur: 0px;
+            --sb-text-color: #fca5a5;
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            margin: 0;
+            font-family: inherit;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+            line-height: 1;
+            color: var(--sb-text-color);
+            background: color-mix(in srgb, var(--sb-tint) calc(var(--sb-tint-opacity) * 100%), transparent);
+            border-radius: var(--sb-radius);
+            backdrop-filter: blur(var(--sb-blur));
+            -webkit-backdrop-filter: blur(var(--sb-blur));
+            cursor: pointer;
+            outline: none;
+            transition: all 0.25s ease;
+            padding: 8px 14px;
+            font-size: 0.85rem;
+            text-decoration: none;
+            overflow: hidden;
+        }
+
+        .specular-button-logout:hover {
+            background: rgba(239, 68, 68, 0.25);
+            border-color: #ef4444;
+            color: #fff;
+        }
+
+        .specular-button-logout .shine {
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(
+                circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+                rgba(255, 255, 255, 0.15) 0%,
+                transparent 70%
+            );
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            border-radius: var(--sb-radius);
+        }
+
+        .specular-button-logout:hover .shine {
+            opacity: 1;
+        }
+
+        .specular-button-logout__label {
+            position: relative;
+            z-index: 2;
+        }
+
+        .specular-button-primary {
+            --sb-radius: 12px;
+            --sb-tint: #ffffff;
+            --sb-tint-opacity: 0;
+            --sb-blur: 0px;
+            --sb-text-color: #f5f5f5;
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            margin: 0;
+            font-family: inherit;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            line-height: 1;
+            color: var(--sb-text-color);
+            background: linear-gradient(135deg, #7c3aed, #6366f1);
+            border-radius: var(--sb-radius);
+            backdrop-filter: blur(var(--sb-blur));
+            -webkit-backdrop-filter: blur(var(--sb-blur));
+            box-shadow: 0 8px 24px -6px rgba(99, 102, 241, 0.3);
+            cursor: pointer;
+            outline: none;
+            transition: all 0.25s ease;
+            padding: 10px 22px;
+            font-size: 0.9rem;
+            text-decoration: none;
+            overflow: hidden;
+            color: #fff;
+        }
+
+        .specular-button-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px -8px rgba(99, 102, 241, 0.5);
+            background: linear-gradient(135deg, #8b5cf6, #818cf8);
+            color: #fff;
+        }
+
+        .specular-button-primary:active {
+            transform: scale(0.97);
+        }
+
+        .specular-button-primary .shine {
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(
+                circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+                rgba(255, 255, 255, 0.25) 0%,
+                rgba(255, 255, 255, 0.05) 40%,
+                transparent 70%
+            );
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            border-radius: var(--sb-radius);
+        }
+
+        .specular-button-primary:hover .shine {
+            opacity: 1;
+        }
+
+        .specular-button-primary .glow-line {
+            position: absolute;
+            inset: 0;
+            border-radius: var(--sb-radius);
+            padding: 1.5px;
+            background: linear-gradient(
+                135deg,
+                rgba(255, 255, 255, 0.2) 0%,
+                rgba(255, 255, 255, 0) 30%,
+                rgba(255, 255, 255, 0) 70%,
+                rgba(255, 255, 255, 0.1) 100%
+            );
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask-composite: exclude;
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        .specular-button-primary__label {
+            position: relative;
+            z-index: 2;
+        }
+
+        .specular-button-primary .spinner-border {
+            position: relative;
+            z-index: 2;
+        }
+
+        .specular-button-danger {
+            --sb-radius: 12px;
+            --sb-tint: #ffffff;
+            --sb-tint-opacity: 0;
+            --sb-blur: 0px;
+            --sb-text-color: #f5f5f5;
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            margin: 0;
+            font-family: inherit;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            line-height: 1;
+            color: var(--sb-text-color);
+            background: linear-gradient(135deg, #dc2626, #ef4444);
+            border-radius: var(--sb-radius);
+            backdrop-filter: blur(var(--sb-blur));
+            -webkit-backdrop-filter: blur(var(--sb-blur));
+            box-shadow: 0 8px 24px -6px rgba(239, 68, 68, 0.3);
+            cursor: pointer;
+            outline: none;
+            transition: all 0.25s ease;
+            padding: 6px 14px;
+            font-size: 0.8rem;
+            text-decoration: none;
+            overflow: hidden;
+            color: #fff;
+        }
+
+        .specular-button-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px -8px rgba(239, 68, 68, 0.5);
+            background: linear-gradient(135deg, #ef4444, #f87171);
+            color: #fff;
+        }
+
+        .specular-button-danger:active {
+            transform: scale(0.97);
+        }
+
+        .specular-button-danger .shine {
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(
+                circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+                rgba(255, 255, 255, 0.25) 0%,
+                rgba(255, 255, 255, 0.05) 40%,
+                transparent 70%
+            );
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            border-radius: var(--sb-radius);
+        }
+
+        .specular-button-danger:hover .shine {
+            opacity: 1;
+        }
+
+        .specular-button-danger .glow-line {
+            position: absolute;
+            inset: 0;
+            border-radius: var(--sb-radius);
+            padding: 1.5px;
+            background: linear-gradient(
+                135deg,
+                rgba(255, 255, 255, 0.2) 0%,
+                rgba(255, 255, 255, 0) 30%,
+                rgba(255, 255, 255, 0) 70%,
+                rgba(255, 255, 255, 0.1) 100%
+            );
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask-composite: exclude;
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        .specular-button-danger__label {
+            position: relative;
+            z-index: 2;
+        }
+
+        .specular-button-unban {
+            --sb-radius: 12px;
+            --sb-tint: #ffffff;
+            --sb-tint-opacity: 0;
+            --sb-blur: 0px;
+            --sb-text-color: #f5f5f5;
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            margin: 0;
+            font-family: inherit;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            line-height: 1;
+            color: var(--sb-text-color);
+            background: linear-gradient(135deg, #059669, #10b981);
+            border-radius: var(--sb-radius);
+            backdrop-filter: blur(var(--sb-blur));
+            -webkit-backdrop-filter: blur(var(--sb-blur));
+            box-shadow: 0 8px 24px -6px rgba(16, 185, 129, 0.3);
+            cursor: pointer;
+            outline: none;
+            transition: all 0.25s ease;
+            padding: 6px 14px;
+            font-size: 0.8rem;
+            text-decoration: none;
+            overflow: hidden;
+            color: #fff;
+        }
+
+        .specular-button-unban:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px -8px rgba(16, 185, 129, 0.5);
+            background: linear-gradient(135deg, #10b981, #34d399);
+            color: #fff;
+        }
+
+        .specular-button-unban:active {
+            transform: scale(0.97);
+        }
+
+        .specular-button-unban .shine {
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(
+                circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+                rgba(255, 255, 255, 0.25) 0%,
+                rgba(255, 255, 255, 0.05) 40%,
+                transparent 70%
+            );
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            border-radius: var(--sb-radius);
+        }
+
+        .specular-button-unban:hover .shine {
+            opacity: 1;
+        }
+
+        .specular-button-unban .glow-line {
+            position: absolute;
+            inset: 0;
+            border-radius: var(--sb-radius);
+            padding: 1.5px;
+            background: linear-gradient(
+                135deg,
+                rgba(255, 255, 255, 0.2) 0%,
+                rgba(255, 255, 255, 0) 30%,
+                rgba(255, 255, 255, 0) 70%,
+                rgba(255, 255, 255, 0.1) 100%
+            );
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask-composite: exclude;
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        .specular-button-unban__label {
+            position: relative;
+            z-index: 2;
+        }
+
+        .main-container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 32px 24px 60px;
+        }
+
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 28px;
+            flex-wrap: wrap;
+            gap: 14px;
+        }
+
+        .page-header h3 {
+            font-weight: 700;
+            font-size: 1.6rem;
+            color: #f0f0ff;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .page-header h3 i {
+            color: var(--primary-light);
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 24px 28px;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .glass-card:hover {
+            border-color: rgba(167, 139, 250, 0.15);
+        }
+
+        .user-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .user-table th {
+            text-align: right;
+            padding: 12px 16px;
+            color: rgba(255, 255, 255, 0.5);
+            font-weight: 500;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .user-table td {
+            padding: 14px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            color: rgba(255, 255, 255, 0.85);
+            vertical-align: middle;
+        }
+
+        .user-table tr:hover td {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: rgba(99, 102, 241, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            color: var(--primary-light);
+            font-size: 0.8rem;
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 60px;
+            font-size: 0.7rem;
+            font-weight: 500;
+        }
+
+        .status-badge.active {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+        }
+
+        .status-badge.banned {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+        }
+
+        .status-badge.admin {
+            background: rgba(99, 102, 241, 0.15);
+            color: #a78bfa;
+        }
+
+        .status-badge.researcher {
+            background: rgba(251, 191, 36, 0.15);
+            color: #fbbf24;
+        }
+
+        .pagination {
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        .pagination .page-item {
+            list-style: none;
+        }
+
+        .pagination .page-link {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            color: rgba(255, 255, 255, 0.6);
+            border-radius: 8px;
+            padding: 6px 14px;
+            font-size: 0.85rem;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+
+        .pagination .page-link:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #f0f0ff;
+        }
+
+        .pagination .active .page-link {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #fff;
+        }
+
+        .toast-container {
+            z-index: 9999;
+        }
+
+        .toast {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 14px;
+            color: #f0f0ff;
+        }
+
+        .toast .toast-header {
+            background: transparent;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            color: #f0f0ff;
+        }
+
+        .toast .toast-header .btn-close {
+            filter: invert(1) brightness(0.6);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px 40px;
+        }
+
+        .empty-state i {
+            font-size: 52px;
+            color: rgba(255, 255, 255, 0.08);
+            margin-bottom: 16px;
+        }
+
+        .empty-state h5 {
+            color: rgba(255, 255, 255, 0.6);
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .empty-state p {
+            color: rgba(255, 255, 255, 0.25);
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            .navbar-custom {
+                padding: 12px 16px;
+            }
+            .navbar-custom .brand {
+                font-size: 1.1rem;
+            }
+            .navbar-custom .user-name {
+                font-size: 0.75rem;
+            }
+            .main-container {
+                padding: 20px 16px 40px;
+            }
+            .page-header h3 {
+                font-size: 1.3rem;
+            }
+            .glass-card {
+                padding: 16px;
+            }
+            .user-table {
+                font-size: 0.85rem;
+            }
+            .user-table th,
+            .user-table td {
+                padding: 10px 12px;
+            }
+            .user-table .desktop-only {
+                display: none;
+            }
+            .specular-button-danger,
+            .specular-button-unban {
+                padding: 4px 10px;
+                font-size: 0.7rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .user-table th,
+            .user-table td {
+                padding: 8px 10px;
+                font-size: 0.75rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar-custom d-flex justify-content-between align-items-center">
+        <div class="brand">
+            <i class="fas fa-brain"></i>
+            Graph-RAG <span style="font-size:0.7rem;color:var(--primary-light);font-weight:400;margin-left:8px;">Admin</span>
+        </div>
+        <div class="user-info">
+            <span class="user-name" id="userNameDisplay">Admin</span>
+            <button class="specular-button-logout" onclick="logout()">
+                <span class="shine"></span>
+                <span class="specular-button-logout__label">
+                    <i class="fas fa-sign-out-alt"></i>
+                </span>
+            </button>
+        </div>
+    </nav>
+
+    <div class="main-container">
+        <div class="page-header">
+            <h3>
+                <i class="fas fa-users-cog"></i> User Management
+            </h3>
+            <button class="specular-button-primary" onclick="loadUsers()">
+                <span class="shine"></span>
+                <span class="glow-line"></span>
+                <span class="specular-button-primary__label">
+                    <i class="fas fa-sync me-1"></i> Refresh
+                </span>
+            </button>
+        </div>
+
+        <div class="glass-card">
+            <div id="usersContainer">
+                <div class="empty-state" id="loadingState">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <h5>Loading users...</h5>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="position-fixed bottom-0 end-0 p-3 toast-container">
+        <div id="toast" class="toast" role="alert">
+            <div class="toast-header">
+                <strong class="me-auto" id="toastTitle">Notice</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="toastMessage">Message</div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js">
+    </script>
+    <script>
+        // ============================================================
+        //  SPECULAR BUTTON SETUP
+        // ============================================================
+        function setupSpecularButton(button) {
+            if (!button) return;
+            const shine = button.querySelector('.shine');
+            if (!shine) return;
+
+            button.addEventListener('mousemove', function(e) {
+                const rect = this.getBoundingClientRect();
+                const x = ((e.clientX - rect.left) / rect.width) * 100;
+                const y = ((e.clientY - rect.top) / rect.height) * 100;
+                shine.style.setProperty('--mouse-x', x + '%');
+                shine.style.setProperty('--mouse-y', y + '%');
+            });
+
+            button.addEventListener('mouseleave', function() {
+                shine.style.opacity = '0';
+            });
+
+            button.addEventListener('mouseenter', function() {
+                shine.style.opacity = '1';
+            });
+        }
+
+        function initAllSpecularButtons() {
+            document.querySelectorAll('.specular-button-primary, .specular-button-danger, .specular-button-unban, .specular-button-logout')
+                .forEach(btn => {
+                    setupSpecularButton(btn);
+                });
+        }
+
+        // ============================================================
+        //  CONFIG
+        // ============================================================
+        const API_URL = 'http://localhost:8000/api';
+        const TOKEN = localStorage.getItem('api_token') || '';
+
+        // ============================================================
+        //  HELPERS
+        // ============================================================
+        function showToast(title, message, type = 'info') {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastTitle').textContent = title;
+            document.getElementById('toastMessage').textContent = message;
+            toast.className = `toast border-${type === 'success' ? 'success' : type === 'danger' ? 'danger' : 'primary'}`;
+            new bootstrap.Toast(toast).show();
+        }
+
+        function getHeaders() {
+            return {
+                'Authorization': `Bearer ${TOKEN}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            };
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+        }
+
+        // ============================================================
+        //  USER
+        // ============================================================
+        document.getElementById('userNameDisplay').textContent = localStorage.getItem('user_name') || 'Admin';
+
+        function logout() {
+            localStorage.clear();
+            window.location.href = 'login.html';
+        }
+
+        // ============================================================
+        //  LOAD USERS
+        // ============================================================
+        let currentPage = 1;
+
+        async function loadUsers(page = 1) {
+            const container = document.getElementById('usersContainer');
+            currentPage = page;
+
+            try {
+                if (!TOKEN) {
+                    container.innerHTML = `
+                                <div class="empty-state">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <h5>Please log in</h5>
+                                    <p><a href="login.html" style="color: var(--primary-light);">Go to login</a></p>
+                                </div>
+                            `;
+                    return;
+                }
+
+                container.innerHTML = `
+                            <div class="empty-state">
+                                <i class="fas fa-spinner fa-spin"></i>
+                                <h5>Loading users...</h5>
+                            </div>
+                        `;
+
+                const res = await fetch(`${API_URL}/users?page=${page}`, {
+                    headers: getHeaders()
+                });
+
+                if (!res.ok) throw new Error('Failed to load users');
+
+                const data = await res.json();
+                const users = data.users?.data || data.users || [];
+                const pagination = data.users || { current_page: page, last_page: 1, total: 0 };
+
+                if (!users.length) {
+                    container.innerHTML = `
+                                <div class="empty-state">
+                                    <i class="fas fa-users"></i>
+                                    <h5>No users found</h5>
+                                    <p>There are no registered users yet.</p>
+                                </div>
+                            `;
+                    return;
+                }
+
+                let html = `
+                            <div style="overflow-x:auto;">
+                                <table class="user-table">
+                                    <thead>
+                                        <tr>
+                                            <th>User</th>
+                                            <th class="desktop-only">Email</th>
+                                            <th>Role</th>
+                                            <th>Status</th>
+                                            <th>Joined</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                `;
+
+                users.forEach(user => {
+                    const isAdmin = user.role === 'admin';
+                    const isBanned = user.is_ban === true || user.is_ban === 1;
+                    const initials = (user.name || 'U').charAt(0).toUpperCase();
+                    const statusClass = isBanned ? 'banned' : 'active';
+                    const statusText = isBanned ? 'Banned' : 'Active';
+                    const roleClass = isAdmin ? 'admin' : 'researcher';
+                    const roleText = isAdmin ? 'Admin' : 'Researcher';
+
+                    html += `
+                                <tr>
+                                    <td>
+                                        <div style="display:flex;align-items:center;gap:10px;">
+                                            <div class="user-avatar">${initials}</div>
+                                            <span>${user.name || 'Unknown'}</span>
+                                            ${user.id == localStorage.getItem('user_id') ? ' <span style="font-size:0.6rem;color:var(--primary-light);">(you)</span>' : ''}
+                                        </div>
+                                    </td>
+                                    <td class="desktop-only" style="color:rgba(255,255,255,0.5);font-size:0.85rem;">${user.email}</td>
+                                    <td><span class="status-badge ${roleClass}">${roleText}</span></td>
+                                    <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                                    <td style="font-size:0.8rem;color:rgba(255,255,255,0.4);">${formatDate(user.created_at)}</td>
+                                    <td>
+                                        ${!isAdmin ? `
+                                            ${isBanned ? `
+                                                <button class="specular-button-unban" onclick="unbanUser(${user.id})">
+                                                    <span class="shine"></span>
+                                                    <span class="glow-line"></span>
+                                                    <span class="specular-button-unban__label">
+                                                        <i class="fas fa-check"></i> Unban
+                                                    </span>
+                                                </button>
+                                            ` : `
+                                                <button class="specular-button-danger" onclick="banUser(${user.id})">
+                                                    <span class="shine"></span>
+                                                    <span class="glow-line"></span>
+                                                    <span class="specular-button-danger__label">
+                                                        <i class="fas fa-ban"></i> Ban
+                                                    </span>
+                                                </button>
+                                            `}
+                                        ` : `
+                                            <span style="color:rgba(255,255,255,0.2);font-size:0.8rem;">—</span>
+                                        `}
+                                    </td>
+                                </tr>
+                            `;
+                });
+
+                html += `
+                                    </tbody>
+                                </table>
+                            </div>
+                        `;
+
+                // Pagination
+                const lastPage = pagination.last_page || 1;
+                const current = pagination.current_page || page;
+
+                if (lastPage > 1) {
+                    html += `
+                                <div class="pagination">
+                                    <ul class="pagination">
+                                        ${current > 1 ? `<li class="page-item"><a class="page-link" href="#" onclick="loadUsers(${current - 1});return false;">‹</a></li>` : ''}
+                                        ${Array.from({length: Math.min(lastPage, 5)}, (_, i) => {
+                                            let p = i + 1;
+                                            if (lastPage > 5) {
+                                                if (p > 3 && p < lastPage - 1) return '';
+                                                if (p === 4) return `<li class="page-item disabled"><span class="page-link">…</span></li>`;
+                                            }
+                                            return `<li class="page-item ${p === current ? 'active' : ''}"><a class="page-link" href="#" onclick="loadUsers(${p});return false;">${p}</a></li>`;
+                                        }).join('')}
+                                        ${current < lastPage ? `<li class="page-item"><a class="page-link" href="#" onclick="loadUsers(${current + 1});return false;">›</a></li>` : ''}
+                                    </ul>
+                                </div>
+                            `;
+                }
+
+                container.innerHTML = html;
+                initAllSpecularButtons();
+
+            } catch (e) {
+                console.error('Error loading users:', e);
+                container.innerHTML = `
+                            <div class="empty-state">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <h5>Error loading users</h5>
+                                <p style="color:rgba(255,255,255,0.4);">${e.message}</p>
+                                <button class="specular-button-primary" onclick="loadUsers()" style="margin-top:12px;">
+                                    <span class="shine"></span>
+                                    <span class="glow-line"></span>
+                                    <span class="specular-button-primary__label">Retry</span>
+                                </button>
+                            </div>
+                        `;
+                initAllSpecularButtons();
+            }
+        }
+
+        // ============================================================
+        //  BAN / UNBAN (با رفرش خودکار)
+        // ============================================================
+
+
+        // ============================================================
+        //  BAN / UNBAN (نسخه نهایی با دیباگ کامل)
+        // ============================================================
+        async function banUser(userId) {
+            if (!confirm(`Are you sure you want to BAN this user?`)) return;
+
+            const btn = event?.target?.closest?.('button');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>`;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/ban/users/${userId}`, {
+                    method: 'POST',
+                    headers: getHeaders()
+                });
+
+                console.log('📊 Status:', response.status);
+                
+                // خواندن پاسخ به صورت text اول
+                const text = await response.text();
+                console.log('📥 Raw response:', text);
+
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    console.error('❌ Invalid JSON:', text);
+                    showToast('Error', 'Invalid response from server.', 'danger');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = `
+                            <span class="shine"></span>
+                            <span class="glow-line"></span>
+                            <span class="specular-button-danger__label">
+                                <i class="fas fa-ban"></i> Ban
+                            </span>
+                        `;
+                    }
+                    return;
+                }
+
+                if (response.ok) {
+                    showToast('Success', 'User has been banned.', 'success');
+                    // ===== رفرش صفحه =====
+                    await loadUsers(currentPage);
+                } else {
+                    showToast('Error', data.message || 'Failed to ban user.', 'danger');
+                }
+            } catch (error) {
+                console.error('❌ Error:', error);
+                showToast('Error', 'Server connection error: ' + error.message, 'danger');
+            }
+
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = `
+                    <span class="shine"></span>
+                    <span class="glow-line"></span>
+                    <span class="specular-button-danger__label">
+                        <i class="fas fa-ban"></i> Ban
+                    </span>
+                `;
+            }
+        }
+
+        async function unbanUser(userId) {
+            if (!confirm(`Are you sure you want to UNBAN this user?`)) return;
+
+            const btn = event?.target?.closest?.('button');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>`;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/unban/users/${userId}`, {
+                    method: 'POST',
+                    headers: getHeaders()
+                });
+
+                console.log('📊 Status:', response.status);
+                
+                const text = await response.text();
+                console.log('📥 Raw response:', text);
+
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    console.error('❌ Invalid JSON:', text);
+                    showToast('Error', 'Invalid response from server.', 'danger');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = `
+                            <span class="shine"></span>
+                            <span class="glow-line"></span>
+                            <span class="specular-button-unban__label">
+                                <i class="fas fa-check"></i> Unban
+                            </span>
+                        `;
+                    }
+                    return;
+                }
+
+                if (response.ok) {
+                    showToast('Success', 'User has been unbanned.', 'success');
+                    await loadUsers(currentPage);
+                } else {
+                    showToast('Error', data.message || 'Failed to unban user.', 'danger');
+                }
+            } catch (error) {
+                console.error('❌ Error:', error);
+                showToast('Error', 'Server connection error: ' + error.message, 'danger');
+            }
+
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = `
+                    <span class="shine"></span>
+                    <span class="glow-line"></span>
+                    <span class="specular-button-unban__label">
+                        <i class="fas fa-check"></i> Unban
+                    </span>
+                `;
+            }
+        }
+
+        // ============================================================
+        //  CHECK IF USER IS ADMIN
+        // ============================================================
+        async function checkAdmin() {
+            try {
+                const res = await fetch(`${API_URL}/user`, {
+                    headers: getHeaders()
+                });
+
+                if (!res.ok) {
+                    window.location.href = 'dashboard.html';
+                    return;
+                }
+
+                const data = await res.json();
+
+                if (data.role !== 'admin') {
+                    window.location.href = 'dashboard.html';
+                    return;
+                }
+
+                loadUsers();
+
+            } catch (e) {
+                console.error('Admin check failed:', e);
+                window.location.href = 'dashboard.html';
+            }
+        }
+
+        // ============================================================
+        //  INIT
+        // ============================================================
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!TOKEN) {
+                window.location.href = 'login.html';
+                return;
+            }
+            initAllSpecularButtons();
+            checkAdmin();
+        });
+    </script>
+</body>
+</html>
