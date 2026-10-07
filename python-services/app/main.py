@@ -25,6 +25,7 @@ import logging
 from collections import Counter, defaultdict
 from dotenv import load_dotenv
 
+from app.services.embedding_service import search as qdrant_search
 from app.document_processor import DocumentProcessor   # ← این خط اضافه شد
 
 from pydantic import BaseModel
@@ -490,4 +491,21 @@ async def process_document(request: ProcessRequest):
         return {"status": "error", "message": "Processing timeout"}, 504
     except Exception as e:
         logger.error(f"Processing failed: {e}")
+        return {"status": "error", "message": str(e)}, 500
+
+
+
+
+
+class SearchRequest(BaseModel):
+    query: str
+    limit: int = 5
+
+@app.post("/search")
+async def search_endpoint(request: SearchRequest):
+    try:
+        results = qdrant_search(request.query, limit=request.limit)
+        return {"status": "success", "results": results}
+    except Exception as e:
+        logger.error(f"Search failed: {e}")
         return {"status": "error", "message": str(e)}, 500

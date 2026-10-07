@@ -24,6 +24,8 @@ return new class extends Migration
             
             // زمان اتمام پردازش
             $table->timestamp('processed_at')->nullable()->after('processing_status');
+            $table->longText('content')->nullable();  // markdown
+            $table->integer('chunks_count')->default(0);
             
             // خطای پردازش (در صورت وجود)
             $table->text('processing_error')->nullable()->after('processed_at');
