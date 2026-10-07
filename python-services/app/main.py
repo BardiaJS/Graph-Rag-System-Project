@@ -1,14 +1,13 @@
-"""
-FastAPI Service for Graph-RAG System
-"""
-
 import os
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+
+# ← حالا بقیه importها
 LARAVEL_STORAGE_PATH = os.getenv(
     "LARAVEL_STORAGE_PATH",
     "/home/bardia/Desktop/graph-rag/backend/storage/app/public"
 )
-
-
 
 from typing import Union
 import redis
@@ -454,6 +453,9 @@ class ProcessRequest(BaseModel):
     session_id: Union[str, int]
     file_path: str
     document_ids: List[Union[int, str]]
+from app.services.embedding_service import upload_chunks
+
+
 @app.post("/process")
 async def process_document(request: ProcessRequest):
     try:
@@ -462,17 +464,25 @@ async def process_document(request: ProcessRequest):
 
         loop = asyncio.get_event_loop()
 
-        # ← یه بار پردازش، هر دو خروجی
         def process():
             processor = DocumentProcessor(full_path)
-            return {
-                "markdown": processor.docling_service(),
-                "chunks": processor.chunking_service(),  # ← اگه لازم داریc
-            }
+            markdown = processor.docling_service()
+            chunks = processor.chunking_service()
+
+            # ← اینجا chunkها رو توی Qdrant ذخیره کن
+            if chunks:
+                count = upload_chunks(
+                    chunks,
+                    user_id=str(request.user_id),
+                    document_id=int(request.document_ids[0]),
+                )
+                logger.info(f"Uploaded {count} chunks to Qdrant")
+
+            return {"markdown": markdown, "chunks": chunks}
 
         result = await asyncio.wait_for(
             loop.run_in_executor(executor, process),
-            timeout=600,  # ← از ۱۷۰ به ۶۰۰ (۱۰ دقیقه)
+            timeout=600,
         )
         return {"status": "success", "result": result}
 
