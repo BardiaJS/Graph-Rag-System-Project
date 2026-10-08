@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    'python_processor' => [
+        'url' => env('PYTHON_PROCESSOR_URL', 'http://localhost:8001'),
+    ],
+    'ollama' => [
+        'url' => env('OLLAMA_URL', 'http://localhost:11434'),
+        'model' => env('OLLAMA_MODEL', 'qwen2.5:7b'),   // ← عوض کن
+    ],
 ];

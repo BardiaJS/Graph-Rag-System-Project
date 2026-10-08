@@ -1,6 +1,5 @@
 import os
 
-# ← این خطوط باید قبل از هر import دیگه‌ای باشن
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
@@ -15,7 +14,11 @@ logger = logging.getLogger(__name__)
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
-COLLECTION_NAME = "graph_rag_chunks"
+# ← اسم جدید چون مدل عوض شده
+COLLECTION_NAME = "graph_rag_chunks_multilingual"
+
+# ← مدل چندزبانه
+EMBED_MODEL = "intfloat/multilingual-e5-small"
 
 client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 
@@ -24,7 +27,8 @@ _model = None
 def get_model():
     global _model
     if _model is None:
-        _model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+        logger.info(f"Loading embedding model: {EMBED_MODEL}")
+        _model = SentenceTransformer(EMBED_MODEL, device="cpu")
     return _model
 
 
@@ -48,7 +52,8 @@ def upload_chunks(chunks: list, user_id: str = None, document_id: int = None):
     ensure_collection()
     model = get_model()
 
-    texts = [c["enriched_text"] for c in chunks]
+    # ← e5 نیاز به prefix "passage:" داره
+    texts = ["passage: " + c["enriched_text"] for c in chunks]
     vectors = model.encode(texts, batch_size=32, show_progress_bar=False).tolist()
 
     import hashlib
@@ -77,7 +82,8 @@ def upload_chunks(chunks: list, user_id: str = None, document_id: int = None):
 
 def search(query: str, limit: int = 5, user_id: str = None):
     model = get_model()
-    query_vector = model.encode(query).tolist()
+    # ← e5 نیاز به prefix "query:" داره
+    query_vector = model.encode("query: " + query).tolist()
 
     hits = client.query_points(
         collection_name=COLLECTION_NAME,

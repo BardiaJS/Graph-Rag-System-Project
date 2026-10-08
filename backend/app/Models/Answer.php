@@ -10,7 +10,7 @@ class Answer extends Model
 {
     protected $fillable = [
         'question_id',
-        'answer',
+        'content',
         'sources',
         'sub_queries',
         'search_plans',

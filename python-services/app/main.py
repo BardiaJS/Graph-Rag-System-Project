@@ -503,9 +503,5 @@ class SearchRequest(BaseModel):
 
 @app.post("/search")
 async def search_endpoint(request: SearchRequest):
-    try:
-        results = qdrant_search(request.query, limit=request.limit)
-        return {"status": "success", "results": results}
-    except Exception as e:
-        logger.error(f"Search failed: {e}")
-        return {"status": "error", "message": str(e)}, 500
+    results = qdrant_search(request.query, limit=request.limit)
+    return {"status": "success", "results": results}

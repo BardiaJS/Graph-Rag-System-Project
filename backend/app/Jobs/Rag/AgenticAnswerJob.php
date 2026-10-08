@@ -18,124 +18,86 @@ class AgenticAnswerJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $tries = 3;
+    public $tries = 1;
+    public $timeout = 300;
 
-    public $backoff = [30, 60, 120];
+    protected $user;
+    protected $session;
+    protected $question;
+    protected $documentIds;
 
-    protected User $user;
-    protected ChatSession $session;
-    protected Question $question;
-    protected array $documentIds;
-
-    public function __construct(
-        User $user,
-        ChatSession $session,
-        Question $question,
-        array $documentIds
-    ) {
+    public function __construct(User $user, ChatSession $session, Question $question, array $documentIds)
+    {
         $this->user = $user;
         $this->session = $session;
         $this->question = $question;
         $this->documentIds = $documentIds;
     }
 
-    public function handle(): void
+    public function handle()
     {
-        Log::info('🔄 AgenticAnswerJob started', [
-            'question_id' => $this->question->id,
-            'user_id' => $this->user->id,
-            'session_id' => $this->session->id,
-            'document_ids' => $this->documentIds,
-        ]);
+        $pythonServiceUrl = config('services.python_processor.url', 'http://localhost:8001');
+        $ollamaUrl = config('services.ollama.url', 'http://localhost:11434');
+        $ollamaModel = config('services.ollama.model', 'llama3.2');
 
         try {
-
-            Log::info('📤 Sending question to FastAPI', [
-                'question_id' => $this->question->id,
-                'document_ids' => $this->documentIds,
-                'top_k' => 5,
-            ]);
-
-            $response = Http::timeout(120)
-                ->post('http://localhost:8001/ask', [
-                    'question' => $this->question->content,
-                    'document_ids' => $this->documentIds,
-                    'top_k' => 5,
-                    'session_id' => $this->session->id,
+            // ۱. Search
+            $searchResponse = Http::timeout(30)
+                ->post("{$pythonServiceUrl}/search", [
+                    'query' => $this->question->content,
+                    'limit' => 3,   // ← از ۵ به ۳
                 ]);
 
-            Log::info('📥 Response received from FastAPI', [
-                'question_id' => $this->question->id,
-                'status' => $response->status(),
-                'successful' => $response->successful(),
-                'body' => $response->body(),
-            ]);
+            if (!$searchResponse->successful()) {
+                throw new \Exception("Search failed: " . $searchResponse->body());
+            }
 
-            /*
-             * FastAPI موفق
-             */
-            if ($response->successful()) {
+            $results = $searchResponse->json('results') ?? [];
 
-                $data = $response->json();
-
-                Log::info('📦 FastAPI JSON decoded', [
-                    'question_id' => $this->question->id,
-                    'data' => $data,
-                ]);
-
-                $answer = Answer::create([
-                    'question_id' => $this->question->id,
-                    'answer' => $data['answer'] ?? 'پاسخی یافت نشد',
-                    'sources' => $data['sources'] ?? null,
-                    'sub_queries' => $data['sub_queries'] ?? null,
-                    'search_plans' => $data['search_plans'] ?? null,
-                    'num_searches' => $data['num_searches'] ?? 0,
-                    'version' => 1,
-                    'is_latest' => true,
-                    'answered_at' => now(),
-                ]);
-
-                $this->question->update([
-                    'status' => 'completed',
-                    'error_message' => null,
-                ]);
-
-                Log::info('✅ AgenticAnswerJob completed', [
-                    'question_id' => $this->question->id,
-                    'answer_id' => $answer->id,
-                    'num_searches' => $data['num_searches'] ?? 0,
-                ]);
-
+            if (empty($results)) {
+                $this->saveAnswer("متأسفانه اطلاعاتی برای پاسخ به این سوال پیدا نشد.", []);
                 return;
             }
 
-            /*
-             * FastAPI خطا برگردانده
-             */
-            $errorBody = $response->body();
+            // ۲. Context (truncate شده)
+            $context = collect($results)
+                ->map(fn($r, $i) => "[" . ($i + 1) . "] " . substr($r['text'], 0, 400))
+                ->implode("\n\n");
 
-            Log::error('❌ FastAPI returned an error', [
-                'question_id' => $this->question->id,
-                'status' => $response->status(),
-                'body' => $errorBody,
-            ]);
+            // ۳. LLM
+            $llmResponse = Http::timeout(120)
+                ->post("{$ollamaUrl}/v1/chat/completions", [
+                    'model' => $ollamaModel,
+                    'messages' => [
+                        [
+                            'role' => 'user',
+                            'content' => "بر اساس context زیر جواب بده. فقط از context استفاده کن.\n\n" .
+                                        "Context:\n{$context}\n\n" .
+                                        "سوال: {$this->question->content}",
+                        ],
+                    ],
+                    'temperature' => 0.1,   // ← کمتر
+                ]);
 
-            $this->question->update([
-                'status' => 'failed',
-                'error_message' => sprintf(
-                    'Python service returned HTTP %s: %s',
-                    $response->status(),
-                    $errorBody
-                ),
-            ]);
+            if (!$llmResponse->successful()) {
+                throw new \Exception("LLM failed: " . $llmResponse->body());
+            }
 
-            throw new \Exception(
-                "FastAPI returned HTTP {$response->status()}: {$errorBody}"
-            );
+            $answer = $llmResponse->json('choices.0.message.content');
 
-        } catch (\Throwable $e) {
+            // ۴. ذخیره
+            $sources = collect($results)->map(fn($r) => [
+                'text' => $r['text'],
+                'headings' => $r['headings'],
+                'page' => $r['page'],
+                'score' => $r['score'],
+            ])->toArray();
 
-            Log::error('❌ AgenticAnswerJob exception', [
+            $this->saveAnswer($answer, $sources);
+
+        } 
+        catch (\Exception $e) {
+            Log::error('AgenticAnswerJob failed', [
                 'question_id' => $this->question->id,
                 'error' => $e->getMessage(),
             ]);
@@ -149,16 +111,41 @@ class AgenticAnswerJob implements ShouldQueue
         }
     }
 
-    public function failed(\Throwable $exception): void
+
+
+
+
+
+
+
+
+
+
+
+
+    protected function saveAnswer(string $content, array $sources)
     {
-        Log::error('💀 AgenticAnswerJob permanently failed', [
+        Answer::create([
             'question_id' => $this->question->id,
-            'user_id' => $this->user->id,
-            'session_id' => $this->session->id,
-            'document_ids' => $this->documentIds,
-            'error' => $exception->getMessage(),
+            'content' => $content,
+            'sources' => $sources,
+            'num_searches' => count($sources),
+            'version' => 1,
+            'is_latest' => true,
+            'answered_at' => now(),
         ]);
 
+        $this->question->update([
+            'status' => 'completed',
+        ]);
+
+        Log::info('AgenticAnswerJob: answer saved', [
+            'question_id' => $this->question->id,
+        ]);
+    }
+
+    public function failed(\Throwable $exception)
+    {
         $this->question->update([
             'status' => 'failed',
             'error_message' => $exception->getMessage(),
