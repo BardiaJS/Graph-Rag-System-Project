@@ -9,6 +9,8 @@ LARAVEL_STORAGE_PATH = os.getenv(
     "/home/bardia/Desktop/graph-rag/backend/storage/app/public"
 )
 
+
+from app.services.graph_service import build_graph  
 from typing import Union
 import redis
 from rq import Queue, Worker
@@ -477,6 +479,14 @@ async def process_document(request: ProcessRequest):
                     user_id=str(request.user_id),
                     document_id=int(request.document_ids[0]),
                 )
+
+
+                build_graph(
+                    document_id=int(request.document_ids[0]),
+                    chunks=chunks,
+                    title=f"Document {request.document_ids[0]}",
+                )
+                logger.info("Graph built successfully")
                 logger.info(f"Uploaded {count} chunks to Qdrant")
 
             return {"markdown": markdown, "chunks": chunks}
@@ -500,8 +510,15 @@ async def process_document(request: ProcessRequest):
 class SearchRequest(BaseModel):
     query: str
     limit: int = 5
+    document_id: int = None   # ← اضافه
 
 @app.post("/search")
 async def search_endpoint(request: SearchRequest):
-    results = qdrant_search(request.query, limit=request.limit)
+    from app.services.embedding_service import search_with_graph
+    
+    results = search_with_graph(
+        query=request.query,
+        limit=request.limit,
+        document_id=request.document_id,  # ← اضافه کن
+    )
     return {"status": "success", "results": results}

@@ -45,7 +45,8 @@ class AgenticAnswerJob implements ShouldQueue
             $searchResponse = Http::timeout(30)
                 ->post("{$pythonServiceUrl}/search", [
                     'query' => $this->question->content,
-                    'limit' => 3,   // ← از ۵ به ۳
+                    'limit' => 3, 
+                    'document_id' => (int) $this->documentIds[0],
                 ]);
 
             if (!$searchResponse->successful()) {
@@ -88,9 +89,11 @@ class AgenticAnswerJob implements ShouldQueue
             // ۴. ذخیره
             $sources = collect($results)->map(fn($r) => [
                 'text' => $r['text'],
-                'headings' => $r['headings'],
-                'page' => $r['page'],
-                'score' => $r['score'],
+                'headings' => $r['headings'] ?? [],
+                'page' => $r['page'] ?? null,
+                'score' => $r['score'] ?? 0,
+                'chunk_index' => $r['chunk_index'] ?? null,
+                'source' => $r['source'] ?? 'vector',
             ])->toArray();
 
             $this->saveAnswer($answer, $sources);
