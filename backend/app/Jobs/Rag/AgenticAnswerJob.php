@@ -19,7 +19,7 @@ class AgenticAnswerJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $tries = 1;
-    public $timeout = 300;
+    public $timeout = 350;
 
     protected $user;
     protected $session;
@@ -41,13 +41,49 @@ class AgenticAnswerJob implements ShouldQueue
         $ollamaModel = config('services.ollama.model', 'llama3.2');
 
         try {
-            // ۱. Search
+            // ⭐ ۱. تاریخچه (سوال + جواب)
+            $history = Question::where('chat_session_id', $this->session->id)
+                ->where('id', '!=', $this->question->id)
+                ->where('status', 'completed')
+                ->with(['answers' => function ($q) {
+                    $q->where('is_latest', true);
+                }])
+                ->orderBy('created_at', 'desc')
+                ->limit(3)
+                ->get()
+                ->reverse()
+                ->map(function ($q) {
+                    $answer = $q->answers->first();
+                    return [
+                        'question' => $this->cleanUtf8($q->content),
+                        'answer' => $answer ? $this->cleanUtf8($answer->content) : '',
+                    ];
+                })
+                ->toArray();
+
+            Log::info('AgenticAnswerJob: history loaded', [
+                'count' => count($history),
+            ]);
+
+            // ⭐ ۲. Search
+            $searchPayload = [
+                'query' => $this->cleanUtf8($this->question->content),
+                'limit' => 3,
+                'document_id' => (int) $this->documentIds[0],
+            ];
+
+            $searchJson = json_encode($searchPayload, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE);
+
+            Log::info('AgenticAnswerJob: search payload', [
+                'q_id' => $this->question->id,
+                'json_error' => json_last_error_msg(),
+                'json_len' => strlen($searchJson),
+            ]);
+
             $searchResponse = Http::timeout(30)
-                ->post("{$pythonServiceUrl}/search", [
-                    'query' => $this->question->content,
-                    'limit' => 3, 
-                    'document_id' => (int) $this->documentIds[0],
-                ]);
+                ->withHeaders(['Content-Type' => 'application/json'])
+                ->withBody($searchJson, 'application/json')
+                ->post("{$pythonServiceUrl}/search");
 
             if (!$searchResponse->successful()) {
                 throw new \Exception("Search failed: " . $searchResponse->body());
@@ -60,25 +96,76 @@ class AgenticAnswerJob implements ShouldQueue
                 return;
             }
 
-            // ۲. Context (truncate شده)
+            // ⭐ ۳. Context
             $context = collect($results)
-                ->map(fn($r, $i) => "[" . ($i + 1) . "] " . substr($r['text'], 0, 400))
+                ->map(fn($r, $i) => "[" . ($i + 1) . "] " . $this->cleanUtf8(substr($r['text'], 0, 400)))
                 ->implode("\n\n");
 
-            // ۳. LLM
-            $llmResponse = Http::timeout(120)
-                ->post("{$ollamaUrl}/v1/chat/completions", [
-                    'model' => $ollamaModel,
-                    'messages' => [
-                        [
-                            'role' => 'user',
-                            'content' => "بر اساس context زیر جواب بده. فقط از context استفاده کن.\n\n" .
-                                        "Context:\n{$context}\n\n" .
-                                        "سوال: {$this->question->content}",
-                        ],
+            // ⭐ ۴. تاریخچه به متن
+            $historyText = "";
+            if (!empty($history)) {
+                $historyText = "Previous conversation:\n";
+                foreach ($history as $h) {
+                    $historyText .= "User: {$h['question']}\n";
+                    if (!empty($h['answer'])) {
+                        $historyText .= "Assistant: " . substr($h['answer'], 0, 200) . "\n";
+                    }
+                    $historyText .= "\n";
+                }
+                $historyText .= "---\n\n";
+            }
+
+            // ⭐ ۵. Prompt
+            $prompt = $historyText .
+                "You are a helpful assistant. Answer the current question based on the context and previous conversation.\n\n" .
+                "Context:\n{$context}\n\n" .
+                "Current question: " . $this->cleanUtf8($this->question->content) . "\n\n" .
+                "Answer in Persian, considering the previous conversation if relevant.";
+
+            // ⭐ ۶. پاکسازی prompt
+            $prompt = $this->cleanUtf8($prompt);
+
+            Log::info('AgenticAnswerJob: before LLM', [
+                'q_id' => $this->question->id,
+                'prompt_len' => strlen($prompt),
+                'history_len' => strlen($historyText),
+                'context_len' => strlen($context),
+                'context_results_count' => count($results),
+            ]);
+
+            // ⭐ ۷. LLM (با json_encode + withBody)
+            $llmPayload = [
+                'model' => $ollamaModel,
+                'messages' => [
+                    [
+                        'role' => 'user',
+                        'content' => $prompt,
                     ],
-                    'temperature' => 0.1,   // ← کمتر
-                ]);
+                ],
+                'temperature' => 0.1,
+                'options' => [
+                    'num_ctx' => 8192,
+                    'num_predict' => 512,
+                ],
+            ];
+
+            $llmJson = json_encode($llmPayload, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE);
+
+            Log::info('AgenticAnswerJob: llm payload', [
+                'q_id' => $this->question->id,
+                'json_error' => json_last_error_msg(),
+                'json_len' => strlen($llmJson),
+            ]);
+
+            if ($llmJson === false) {
+                throw new \Exception("Failed to encode LLM payload: " . json_last_error_msg());
+            }
+
+            $llmResponse = Http::timeout(280)
+                ->connectTimeout(10)
+                ->withHeaders(['Content-Type' => 'application/json'])
+                ->withBody($llmJson, 'application/json')
+                ->post("{$ollamaUrl}/v1/chat/completions");
 
             if (!$llmResponse->successful()) {
                 throw new \Exception("LLM failed: " . $llmResponse->body());
@@ -86,9 +173,14 @@ class AgenticAnswerJob implements ShouldQueue
 
             $answer = $llmResponse->json('choices.0.message.content');
 
-            // ۴. ذخیره
+            Log::info('AgenticAnswerJob: after LLM', [
+                'q_id' => $this->question->id,
+                'answer_len' => strlen($answer),
+            ]);
+
+            // ⭐ ۸. Sources
             $sources = collect($results)->map(fn($r) => [
-                'text' => $r['text'],
+                'text' => $this->cleanUtf8($r['text']),
                 'headings' => $r['headings'] ?? [],
                 'page' => $r['page'] ?? null,
                 'score' => $r['score'] ?? 0,
@@ -96,13 +188,14 @@ class AgenticAnswerJob implements ShouldQueue
                 'source' => $r['source'] ?? 'vector',
             ])->toArray();
 
-            $this->saveAnswer($answer, $sources);
+            // ⭐ ۹. ذخیره
+            $this->saveAnswer($this->cleanUtf8($answer), $sources);
 
-        } 
-        catch (\Exception $e) {
+        } catch (\Exception $e) {
             Log::error('AgenticAnswerJob failed', [
                 'question_id' => $this->question->id,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             $this->question->update([
@@ -114,19 +207,41 @@ class AgenticAnswerJob implements ShouldQueue
         }
     }
 
+    /**
+     * حذف کاراکترهای غیر UTF-8
+     */
+    protected function cleanUtf8(?string $text): string
+    {
+        if ($text === null) {
+            return '';
+        }
 
+        // ۱. حذف BOM
+        $text = preg_replace('/^\x{FEFF}/u', '', $text);
 
+        // ۲. حذف کاراکترهای کنترلی (به جز \n \r \t)
+        $text = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $text);
 
+        // ۳. حذف کاراکترهای ناقص UTF-8 (مثل <D9> یا \uD9)
+        $text = preg_replace('/<[0-9A-F]{2}>/i', '', $text);
+        $text = preg_replace('/\\\\uD[89AB][0-9A-F]{2}/i', '', $text);
 
+        // ۴. تبدیل کاراکترهای ناقص باقی‌مونده به ؟
+        mb_substitute_character(0x003F);
+        $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
 
+        // ۵. اطمینان نهایی
+        if (!mb_check_encoding($text, 'UTF-8')) {
+            $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+        }
 
+        return $text;
+    }
 
-
-
-
-
-
-    protected function saveAnswer(string $content, array $sources)
+    /**
+     * ذخیره جواب
+     */
+    protected function saveAnswer(string $content, array $sources): void
     {
         Answer::create([
             'question_id' => $this->question->id,
@@ -147,7 +262,10 @@ class AgenticAnswerJob implements ShouldQueue
         ]);
     }
 
-    public function failed(\Throwable $exception)
+    /**
+     * اگه job fail بشه
+     */
+    public function failed(\Throwable $exception): void
     {
         $this->question->update([
             'status' => 'failed',

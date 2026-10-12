@@ -29,6 +29,8 @@ Route::delete('sessions/{session}/' , [SessionController::class, 'delete_session
 Route::patch('sessions/{session}/' , [SessionController::class, 'update_session'])->middleware('auth:sanctum','not.banned');
 Route::get('/sessions/{sessions}'  ,[SessionController::class, 'get_session'])->middleware('auth:sanctum','not.banned');
 Route::get('/sessions'  ,[SessionController::class, 'sessions'])->middleware('auth:sanctum','not.banned');
+Route::get('/session/{session}/question' , [SessionController::class , 'get_questions_in_the_session'])->middleware('auth:sanctum' , 'not.banned');
+Route::get('/session/{session}/history' , [SessionController::class , 'history'])->middleware('auth:sanctum' , 'not.banned');
 
 // ==== Documents ====
 Route::post('/sessions/{session}/search' , [DocumentController::class, 'search'])->middleware('auth:sanctum','not.banned');
@@ -43,7 +45,6 @@ Route::get('/sessions/{session}/documents' , [DocumentController::class, 'docume
 // ===== Questions =====
 Route::get('/questions/{question}/result', [DocumentController::class, 'getResult'])->middleware('auth:sanctum','not.banned');
 Route::get('/questions/{question}/status', [DocumentController::class, 'getStatus'])->middleware('auth:sanctum','not.banned');
-
 
 // ===== Admins =====
 Route::get('/users' , [AdminController::class, 'get_users'])->middleware('auth:sanctum','not.banned');

@@ -161,4 +161,57 @@ class SessionController extends Controller
             'session_id' => $session->id
         ]);
     }
+
+
+    public function get_questions_in_the_session(ChatSession $session)
+    {
+        $user = Auth::user();
+        
+        if ($session->user_id !== $user->id) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+        
+        $questions = $session->questions()
+            ->orderBy('created_at', 'asc')
+            ->get();
+        
+        return response()->json([
+            'questions' => $questions
+        ]);
+    }
+
+
+    public function history(ChatSession $session)
+    {
+        $user = Auth::user();
+        
+        if ($session->user_id !== $user->id) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+        
+        $questions = $session->questions()
+            ->with(['answers' => function ($q) {
+                $q->where('is_latest', true);
+            }])
+            ->orderBy('created_at', 'asc')
+            ->get()
+            ->map(function ($question) {
+                return [
+                    'question_id' => $question->id,
+                    'question' => $question->content,
+                    'status' => $question->status,
+                    'created_at' => $question->created_at,
+                    'answer' => $question->answers->first() ? [
+                        'content' => $question->answers->first()->content,
+                        'sources' => $question->answers->first()->sources,
+                        'answered_at' => $question->answers->first()->answered_at,
+                    ] : null,
+                ];
+            });
+        
+        return response()->json([
+            'session_id' => $session->id,
+            'history' => $questions,
+        ]);
+    }
 }
