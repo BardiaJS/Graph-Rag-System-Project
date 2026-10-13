@@ -34,11 +34,96 @@ class AgenticAnswerJob implements ShouldQueue
         $this->documentIds = $documentIds;
     }
 
+
+
+/**
+ * سوال رو به sub-queryها تقسیم کن (Agentic RAG)
+ */
+    protected function planQueries(string $question, string $ollamaUrl, string $ollamaModel): array
+    {
+        $prompt = "You are a query planner. Break down the user's question into 1-3 sub-queries " .
+                "that can be searched independently.\n\n" .
+                "User question: {$question}\n\n" .
+                "Return ONLY a JSON object like this (no markdown, no explanation):\n" .
+                '{"sub_queries": ["query 1", "query 2"], "reasoning": "why"}' . "\n\n" .
+                "If the question is simple, return only 1 sub-query.";
+
+        $payload = [
+            'model' => $ollamaModel,
+            'messages' => [
+                ['role' => 'user', 'content' => $prompt],
+            ],
+            'temperature' => 0.1,
+            'options' => [
+                'num_ctx' => 4096,
+                'num_predict' => 256,
+            ],
+            'keep_alive' => '10m',  
+
+        ];
+
+        $json = json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE);
+
+        try {
+            $response = Http::timeout(60)
+                ->connectTimeout(10)
+                ->withHeaders(['Content-Type' => 'application/json'])
+                ->withBody($json, 'application/json')
+                ->post("{$ollamaUrl}/v1/chat/completions");
+
+            $content = $response->json('choices.0.message.content') ?? '';
+
+            Log::info('AgenticAnswerJob: plan response', [
+                'content' => substr($content, 0, 300),
+            ]);
+
+            // استخراج JSON از پاسخ
+            if (preg_match('/\{.*\}/s', $content, $matches)) {
+                $parsed = json_decode($matches[0], true);
+                if (isset($parsed['sub_queries']) && is_array($parsed['sub_queries'])) {
+                    $subQueries = array_values(array_filter($parsed['sub_queries'], 'is_string'));
+                    if (!empty($subQueries)) {
+                        return [
+                            'sub_queries' => $subQueries,
+                            'reasoning' => $parsed['reasoning'] ?? '',
+                        ];
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning('AgenticAnswerJob: planQueries failed', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        // Fallback: خود سوال
+        return [
+            'sub_queries' => [$question],
+            'reasoning' => 'fallback',
+        ];
+    }
+
+
+
+
+
     public function handle()
     {
         $pythonServiceUrl = config('services.python_processor.url', 'http://localhost:8001');
         $ollamaUrl = config('services.ollama.url', 'http://localhost:11434');
-        $ollamaModel = config('services.ollama.model', 'llama3.2');
+
+            // ⭐ تشخیص زبان سوال
+        $isPersian = preg_match('/[\x{0600}-\x{06FF}]/u', $this->question->content);
+            
+        if ($isPersian) {
+            $ollamaModel = 'qwen2.5:7b';
+            $answerLanguage = 'Persian (فارسی)';
+            Log::info('AgenticAnswerJob: Persian detected, using qwen2.5:7b');
+        } else {
+            $ollamaModel = 'llama3.2';
+            $answerLanguage = 'English';
+            Log::info('AgenticAnswerJob: English detected, using llama3.2');
+        }
 
         try {
             // ⭐ ۱. تاریخچه (سوال + جواب)
@@ -65,40 +150,70 @@ class AgenticAnswerJob implements ShouldQueue
                 'count' => count($history),
             ]);
 
-            // ⭐ ۲. Search
-            $searchPayload = [
-                'query' => $this->cleanUtf8($this->question->content),
-                'limit' => 3,
-                'document_id' => (int) $this->documentIds[0],
-            ];
+            // ⭐ ۲. Plan queries (Agentic RAG)
+            $plan = $this->planQueries(
+                $this->cleanUtf8($this->question->content),
+                $ollamaUrl,
+                $ollamaModel
+            );
 
-            $searchJson = json_encode($searchPayload, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE);
+            $subQueries = $plan['sub_queries'];
+            $reasoning = $plan['reasoning'];
 
-            Log::info('AgenticAnswerJob: search payload', [
+            Log::info('AgenticAnswerJob: plan created', [
                 'q_id' => $this->question->id,
-                'json_error' => json_last_error_msg(),
-                'json_len' => strlen($searchJson),
+                'sub_queries' => $subQueries,
+                'reasoning' => $reasoning,
             ]);
 
-            $searchResponse = Http::timeout(30)
-                ->withHeaders(['Content-Type' => 'application/json'])
-                ->withBody($searchJson, 'application/json')
-                ->post("{$pythonServiceUrl}/search");
+            // ⭐ ۳. برای هر sub-query، search جدا
+            $allResults = [];
+            $seenIds = [];
 
-            if (!$searchResponse->successful()) {
-                throw new \Exception("Search failed: " . $searchResponse->body());
+            foreach ($subQueries as $sq) {
+                $searchPayload = [
+                    'query' => $this->cleanUtf8($sq),
+                    'limit' => 2,
+                    'document_id' => (int) $this->documentIds[0],
+                ];
+
+                $searchJson = json_encode($searchPayload, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE);
+
+                $searchResponse = Http::timeout(30)
+                    ->withHeaders(['Content-Type' => 'application/json'])
+                    ->withBody($searchJson, 'application/json')
+                    ->post("{$pythonServiceUrl}/search");
+
+                if (!$searchResponse->successful()) {
+                    Log::warning('AgenticAnswerJob: sub-search failed', [
+                        'sub_query' => $sq,
+                        'status' => $searchResponse->status(),
+                    ]);
+                    continue;
+                }
+
+                $subResults = $searchResponse->json('results') ?? [];
+
+                foreach ($subResults as $r) {
+                    $key = ($r['document_id'] ?? '') . '_' . ($r['chunk_index'] ?? '');
+                    if (!isset($seenIds[$key])) {
+                        $allResults[] = $r;
+                        $seenIds[$key] = true;
+                    }
+                }
             }
 
-            $results = $searchResponse->json('results') ?? [];
+            $results = $allResults;
 
-            if (empty($results)) {
-                $this->saveAnswer("متأسفانه اطلاعاتی برای پاسخ به این سوال پیدا نشد.", []);
-                return;
-            }
-
+            Log::info('AgenticAnswerJob: search done', [
+                'q_id' => $this->question->id,
+                'sub_queries_count' => count($subQueries),
+                'total_results' => count($results),
+            ]);
             // ⭐ ۳. Context
             $context = collect($results)
-                ->map(fn($r, $i) => "[" . ($i + 1) . "] " . $this->cleanUtf8(substr($r['text'], 0, 400)))
+                ->take(5)
+                ->map(fn($r, $i) => "[" . ($i + 1) . "] " . $this->cleanUtf8(substr($r['text'], 0, 200)))
                 ->implode("\n\n");
 
             // ⭐ ۴. تاریخچه به متن
@@ -120,7 +235,9 @@ class AgenticAnswerJob implements ShouldQueue
                 "You are a helpful assistant. Answer the current question based on the context and previous conversation.\n\n" .
                 "Context:\n{$context}\n\n" .
                 "Current question: " . $this->cleanUtf8($this->question->content) . "\n\n" .
-                "Answer in Persian, considering the previous conversation if relevant.";
+                "Answer in {$answerLanguage}, based only on the context above. " .
+                "Keep English names (like 'Rasmus Lerdorf') and code terms (like 'array') in English.\n" .
+                "Be concise and complete.";
 
             // ⭐ ۶. پاکسازی prompt
             $prompt = $this->cleanUtf8($prompt);
@@ -147,6 +264,8 @@ class AgenticAnswerJob implements ShouldQueue
                     'num_ctx' => 8192,
                     'num_predict' => 512,
                 ],
+                'keep_alive' => '10m',  
+
             ];
 
             $llmJson = json_encode($llmPayload, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE);
@@ -189,7 +308,12 @@ class AgenticAnswerJob implements ShouldQueue
             ])->toArray();
 
             // ⭐ ۹. ذخیره
-            $this->saveAnswer($this->cleanUtf8($answer), $sources);
+            $this->saveAnswer(
+                $this->cleanUtf8($answer),
+                $sources,
+                $subQueries,
+                [$reasoning]
+            );
 
         } catch (\Exception $e) {
             Log::error('AgenticAnswerJob failed', [
@@ -222,13 +346,14 @@ class AgenticAnswerJob implements ShouldQueue
         // ۲. حذف کاراکترهای کنترلی (به جز \n \r \t)
         $text = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $text);
 
-        // ۳. حذف کاراکترهای ناقص UTF-8 (مثل <D9> یا \uD9)
+        // ۳. حذف byteهای ناقص UTF-8 (معتبر)
+        if (!mb_check_encoding($text, 'UTF-8')) {
+            $text = @iconv('UTF-8', 'UTF-8//IGNORE', $text);
+        }
+
+        // ۴. حذف کاراکترهای ناقص باقی‌مونده
         $text = preg_replace('/<[0-9A-F]{2}>/i', '', $text);
         $text = preg_replace('/\\\\uD[89AB][0-9A-F]{2}/i', '', $text);
-
-        // ۴. تبدیل کاراکترهای ناقص باقی‌مونده به ؟
-        mb_substitute_character(0x003F);
-        $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
 
         // ۵. اطمینان نهایی
         if (!mb_check_encoding($text, 'UTF-8')) {
@@ -241,12 +366,14 @@ class AgenticAnswerJob implements ShouldQueue
     /**
      * ذخیره جواب
      */
-    protected function saveAnswer(string $content, array $sources): void
+    protected function saveAnswer(string $content, array $sources, array $subQueries = [], array $searchPlans = []): void
     {
         Answer::create([
             'question_id' => $this->question->id,
             'content' => $content,
             'sources' => $sources,
+            'sub_queries' => $subQueries,
+            'search_plans' => $searchPlans,
             'num_searches' => count($sources),
             'version' => 1,
             'is_latest' => true,
