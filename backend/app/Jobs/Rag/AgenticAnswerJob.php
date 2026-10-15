@@ -34,11 +34,9 @@ class AgenticAnswerJob implements ShouldQueue
         $this->documentIds = $documentIds;
     }
 
-
-
-/**
- * سوال رو به sub-queryها تقسیم کن (Agentic RAG)
- */
+    /**
+     * سوال رو به sub-queryها تقسیم کن (Agentic RAG)
+     */
     protected function planQueries(string $question, string $ollamaUrl, string $ollamaModel): array
     {
         $prompt = "You are a query planner. Break down the user's question into 1-3 sub-queries " .
@@ -58,8 +56,7 @@ class AgenticAnswerJob implements ShouldQueue
                 'num_ctx' => 4096,
                 'num_predict' => 256,
             ],
-            'keep_alive' => '10m',  
-
+            'keep_alive' => '10m',
         ];
 
         $json = json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE);
@@ -77,7 +74,6 @@ class AgenticAnswerJob implements ShouldQueue
                 'content' => substr($content, 0, 300),
             ]);
 
-            // استخراج JSON از پاسخ
             if (preg_match('/\{.*\}/s', $content, $matches)) {
                 $parsed = json_decode($matches[0], true);
                 if (isset($parsed['sub_queries']) && is_array($parsed['sub_queries'])) {
@@ -96,29 +92,24 @@ class AgenticAnswerJob implements ShouldQueue
             ]);
         }
 
-        // Fallback: خود سوال
         return [
             'sub_queries' => [$question],
             'reasoning' => 'fallback',
         ];
     }
 
-
-
-
-
     public function handle()
     {
         $pythonServiceUrl = config('services.python_processor.url', 'http://localhost:8001');
         $ollamaUrl = config('services.ollama.url', 'http://localhost:11434');
 
-            // ⭐ تشخیص زبان سوال
+        // ⭐ تشخیص زبان سوال
         $isPersian = preg_match('/[\x{0600}-\x{06FF}]/u', $this->question->content);
-            
+
         if ($isPersian) {
-            $ollamaModel = 'qwen2.5:7b';
+            $ollamaModel = 'gemma3:4b';   // ← چندزبانه، فارسی خوب
             $answerLanguage = 'Persian (فارسی)';
-            Log::info('AgenticAnswerJob: Persian detected, using qwen2.5:7b');
+            Log::info('AgenticAnswerJob: Persian detected, using gemma3:4b');
         } else {
             $ollamaModel = 'llama3.2';
             $answerLanguage = 'English';
@@ -173,8 +164,9 @@ class AgenticAnswerJob implements ShouldQueue
             foreach ($subQueries as $sq) {
                 $searchPayload = [
                     'query' => $this->cleanUtf8($sq),
-                    'limit' => 2,
+                    'limit' => 3,
                     'document_id' => (int) $this->documentIds[0],
+                    'use_graph' => true,   // ← اضافه شد
                 ];
 
                 $searchJson = json_encode($searchPayload, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE);
@@ -210,13 +202,14 @@ class AgenticAnswerJob implements ShouldQueue
                 'sub_queries_count' => count($subQueries),
                 'total_results' => count($results),
             ]);
-            // ⭐ ۳. Context
+
+            // ⭐ ۴. Context
             $context = collect($results)
                 ->take(5)
                 ->map(fn($r, $i) => "[" . ($i + 1) . "] " . $this->cleanUtf8(substr($r['text'], 0, 200)))
                 ->implode("\n\n");
 
-            // ⭐ ۴. تاریخچه به متن
+            // ⭐ ۵. تاریخچه به متن
             $historyText = "";
             if (!empty($history)) {
                 $historyText = "Previous conversation:\n";
@@ -230,27 +223,25 @@ class AgenticAnswerJob implements ShouldQueue
                 $historyText .= "---\n\n";
             }
 
-            // ⭐ ۵. Prompt
+            // ⭐ ۶. Prompt
             $prompt = $historyText .
-                "You are a helpful assistant. Answer the current question based on the context and previous conversation.\n\n" .
+                "You are a helpful assistant. Answer the current question based on the context.\n\n" .
                 "Context:\n{$context}\n\n" .
                 "Current question: " . $this->cleanUtf8($this->question->content) . "\n\n" .
-                "Answer in {$answerLanguage}, based only on the context above. " .
-                "Keep English names (like 'Rasmus Lerdorf') and code terms (like 'array') in English.\n" .
-                "Be concise and complete.";
+                "CRITICAL: You MUST answer ONLY in {$answerLanguage}.\n" .
+                "DO NOT use Chinese characters (汉字).\n" .
+                "DO NOT use English (except for names like 'Rasmus Lerdorf' and code like 'array').\n" .
+                "Answer:";
 
-            // ⭐ ۶. پاکسازی prompt
-            $prompt = $this->cleanUtf8($prompt);
+                Log::info('AgenticAnswerJob: prompt debug', [
+                    'history_len' => strlen($historyText),
+                    'context_len' => strlen($context),
+                    'answer_language' => $answerLanguage,
+                    'prompt_len_raw' => strlen($prompt),
+                    'prompt_first_200' => substr($prompt, 0, 200),
+                ]);
 
-            Log::info('AgenticAnswerJob: before LLM', [
-                'q_id' => $this->question->id,
-                'prompt_len' => strlen($prompt),
-                'history_len' => strlen($historyText),
-                'context_len' => strlen($context),
-                'context_results_count' => count($results),
-            ]);
-
-            // ⭐ ۷. LLM (با json_encode + withBody)
+            // ⭐ ۸. LLM
             $llmPayload = [
                 'model' => $ollamaModel,
                 'messages' => [
@@ -259,13 +250,13 @@ class AgenticAnswerJob implements ShouldQueue
                         'content' => $prompt,
                     ],
                 ],
-                'temperature' => 0.1,
+                'temperature' => 0.05,
                 'options' => [
                     'num_ctx' => 8192,
                     'num_predict' => 512,
+                    'repeat_penalty' => 1.1,
                 ],
-                'keep_alive' => '10m',  
-
+                'keep_alive' => '10m',
             ];
 
             $llmJson = json_encode($llmPayload, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE);
@@ -297,7 +288,7 @@ class AgenticAnswerJob implements ShouldQueue
                 'answer_len' => strlen($answer),
             ]);
 
-            // ⭐ ۸. Sources
+            // ⭐ ۹. Sources
             $sources = collect($results)->map(fn($r) => [
                 'text' => $this->cleanUtf8($r['text']),
                 'headings' => $r['headings'] ?? [],
@@ -307,7 +298,7 @@ class AgenticAnswerJob implements ShouldQueue
                 'source' => $r['source'] ?? 'vector',
             ])->toArray();
 
-            // ⭐ ۹. ذخیره
+            // ⭐ ۱۰. ذخیره
             $this->saveAnswer(
                 $this->cleanUtf8($answer),
                 $sources,
@@ -334,34 +325,33 @@ class AgenticAnswerJob implements ShouldQueue
     /**
      * حذف کاراکترهای غیر UTF-8
      */
-    protected function cleanUtf8(?string $text): string
-    {
-        if ($text === null) {
-            return '';
-        }
-
-        // ۱. حذف BOM
-        $text = preg_replace('/^\x{FEFF}/u', '', $text);
-
-        // ۲. حذف کاراکترهای کنترلی (به جز \n \r \t)
-        $text = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $text);
-
-        // ۳. حذف byteهای ناقص UTF-8 (معتبر)
-        if (!mb_check_encoding($text, 'UTF-8')) {
-            $text = @iconv('UTF-8', 'UTF-8//IGNORE', $text);
-        }
-
-        // ۴. حذف کاراکترهای ناقص باقی‌مونده
-        $text = preg_replace('/<[0-9A-F]{2}>/i', '', $text);
-        $text = preg_replace('/\\\\uD[89AB][0-9A-F]{2}/i', '', $text);
-
-        // ۵. اطمینان نهایی
-        if (!mb_check_encoding($text, 'UTF-8')) {
-            $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
-        }
-
-        return $text;
+protected function cleanUtf8(?string $text): string
+{
+    if ($text === null) {
+        return '';
     }
+
+    // ۱. حذف BOM
+    $text = preg_replace('/^\x{FEFF}/u', '', $text);
+
+    // ۲. حذف کاراکترهای کنترلی (به جز \n \r \t)
+    $text = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $text);
+
+    // ۳. اگه UTF-8 معتبر نبود، با iconv تمیز کن
+    if (!mb_check_encoding($text, 'UTF-8')) {
+        $text = @iconv('UTF-8', 'UTF-8//IGNORE', $text);
+    }
+
+    // ۴. حذف byteهای ناقص (اینا واقعاً مشکل‌دارن)
+    $text = preg_replace('/\\\\uD[89AB][0-9A-F]{2}/i', '', $text);
+
+    // ۵. اطمینان نهایی
+    if (!mb_check_encoding($text, 'UTF-8')) {
+        $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+    }
+
+    return $text;
+}
 
     /**
      * ذخیره جواب
@@ -389,9 +379,6 @@ class AgenticAnswerJob implements ShouldQueue
         ]);
     }
 
-    /**
-     * اگه job fail بشه
-     */
     public function failed(\Throwable $exception): void
     {
         $this->question->update([

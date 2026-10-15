@@ -77,14 +77,26 @@ def upload_chunks(chunks: list, user_id: str = None, document_id: int = None):
     return len(points)
 
 
-def search(query: str, limit: int = 5, user_id: str = None):
-    """vector search ساده"""
+def search(query: str, limit: int = 5, user_id: str = None, document_id: int = None):
+    """vector search با فیلتر document_id"""
     model = get_model()
     query_vector = model.encode("query: " + query).tolist()
+
+    # ⭐ فیلتر document_id
+    query_filter = None
+    if document_id:
+        from qdrant_client import models
+        query_filter = models.Filter(
+            must=[models.FieldCondition(
+                key="document_id",
+                match=models.MatchValue(value=document_id),
+            )]
+        )
 
     hits = client.query_points(
         collection_name=COLLECTION_NAME,
         query=query_vector,
+        query_filter=query_filter,   # ← اضافه شد
         limit=limit,
     ).points
 
@@ -100,8 +112,6 @@ def search(query: str, limit: int = 5, user_id: str = None):
         }
         for h in hits
     ]
-
-
 def search_with_graph(query: str, limit: int = 5, document_id: int = None):
     """
     ۱. vector search
@@ -110,23 +120,15 @@ def search_with_graph(query: str, limit: int = 5, document_id: int = None):
     """
     from app.services.graph_service import get_chunks_with_context
 
-    # vector search
-    results = search(query, limit=limit)
+    # vector search با document_id
+    results = search(query, limit=limit, document_id=document_id)   # ← document_id پاس شد
 
     if not document_id:
         return results
 
-    enriched = []
-    seen_indices = set()
+    enriched = list(results)
+    seen_indices = {r.get('chunk_index') for r in results if r.get('chunk_index') is not None}
 
-    # اول همه chunkهای اصلی
-    for r in results:
-        idx = r.get("chunk_index")
-        if idx is not None:
-            enriched.append(r)
-            seen_indices.add(idx)
-
-    # بعد همسایه‌ها
     for r in results:
         chunk_idx = r.get("chunk_index")
         if chunk_idx is None:
@@ -141,7 +143,7 @@ def search_with_graph(query: str, limit: int = 5, document_id: int = None):
                     "page": n["page"],
                     "chunk_index": n["idx"],
                     "document_id": document_id,
-                    "headings": [],   # ← اضافه کن
+                    "headings": [],
                     "score": r["score"] * 0.9,
                     "source": "graph",
                 })
@@ -149,4 +151,5 @@ def search_with_graph(query: str, limit: int = 5, document_id: int = None):
 
     # مرتب بر اساس score
     enriched.sort(key=lambda x: x["score"], reverse=True)
+
     return enriched

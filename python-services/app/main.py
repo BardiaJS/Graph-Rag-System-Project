@@ -3,14 +3,20 @@ os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 
+from app.services.debug_service import (
+    print_qdrant_points,
+    print_neo4j_graph,
+    print_search_results,
+    print_chunks_summary,
+)
+
 # ← حالا بقیه importها
 LARAVEL_STORAGE_PATH = os.getenv(
     "LARAVEL_STORAGE_PATH",
     "/home/bardia/Desktop/graph-rag/backend/storage/app/public"
 )
 
-
-from app.services.graph_service import build_graph  
+from app.services.graph_service import build_graph
 from typing import Union
 import redis
 from rq import Queue, Worker
@@ -28,7 +34,7 @@ from collections import Counter, defaultdict
 from dotenv import load_dotenv
 
 from app.services.embedding_service import search as qdrant_search
-from app.document_processor import DocumentProcessor   # ← این خط اضافه شد
+from app.document_processor import DocumentProcessor
 
 from pydantic import BaseModel
 from typing import List, Optional
@@ -456,6 +462,8 @@ class ProcessRequest(BaseModel):
     session_id: Union[str, int]
     file_path: str
     document_ids: List[Union[int, str]]
+
+
 from app.services.embedding_service import upload_chunks
 
 
@@ -474,18 +482,31 @@ async def process_document(request: ProcessRequest):
 
             # ← اینجا chunkها رو توی Qdrant ذخیره کن
             if chunks:
+                # ⭐ ۱. خلاصه chunks
+                print_chunks_summary(chunks)
+
+                # ⭐ ۲. Qdrant
                 count = upload_chunks(
                     chunks,
                     user_id=str(request.user_id),
                     document_id=int(request.document_ids[0]),
                 )
+                print_qdrant_points(
+                    document_id=int(request.document_ids[0]),
+                    limit=5,
+                )
 
-
+                # ⭐ ۳. Neo4j Graph
                 build_graph(
                     document_id=int(request.document_ids[0]),
                     chunks=chunks,
                     title=f"Document {request.document_ids[0]}",
                 )
+                print_neo4j_graph(
+                    document_id=int(request.document_ids[0]),
+                    limit=10,
+                )
+
                 logger.info("Graph built successfully")
                 logger.info(f"Uploaded {count} chunks to Qdrant")
 
@@ -504,21 +525,37 @@ async def process_document(request: ProcessRequest):
         return {"status": "error", "message": str(e)}, 500
 
 
-
-
+# ============================================================
+# ENDPOINT: /search
+# ============================================================
 
 class SearchRequest(BaseModel):
     query: str
     limit: int = 5
-    document_id: int = None   # ← اضافه
+    document_id: int = None
+    use_graph: bool = True  
+
+
 
 @app.post("/search")
 async def search_endpoint(request: SearchRequest):
-    from app.services.embedding_service import search_with_graph
+    from app.services.embedding_service import search_with_graph, search
     
-    results = search_with_graph(
-        query=request.query,
-        limit=request.limit,
-        document_id=request.document_id,  # ← اضافه کن
-    )
+    # ⭐ بر اساس use_graph تصمیم بگیر
+    if request.use_graph:
+        results = search_with_graph(
+            query=request.query,
+            limit=request.limit,
+            document_id=request.document_id,
+        )
+    else:
+        results = search(
+            query=request.query,
+            limit=request.limit,
+            document_id=request.document_id,
+        )
+    
+    # چاپ نتایج
+    print_search_results(request.query, results)
+    
     return {"status": "success", "results": results}
