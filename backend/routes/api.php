@@ -34,7 +34,6 @@ Route::get('/session/{session}/history' , [SessionController::class , 'history']
 
 // ==== Documents ====
 Route::post('/sessions/{session}/search' , [DocumentController::class, 'search'])->middleware('auth:sanctum','not.banned');
-Route::post('/webhook/document-processed', [WebhookController::class, 'handle' ]);
 Route::post('/documents/sessions/{session}/users/{user}' , [DocumentController::class , 'upload_document'])->middleware('auth:sanctum','not.banned');
 
 Route::delete('/documents/{document}/' , [DocumentController::class, 'delete'])->middleware('auth:sanctum','not.banned');
@@ -51,3 +50,9 @@ Route::get('/users' , [AdminController::class, 'get_users'])->middleware('auth:s
 Route::get('/users/{user}' , [AdminController::class, 'get_user'])->middleware('auth:sanctum','not.banned');
 Route::post('/users/{user}' , [AdminController::class , 'ban_user'])->middleware('auth:sanctum','not.banned');
 Route::post('/unban/users/{user}' , [AdminController::class , 'unban_user'])->middleware('auth:sanctum','not.banned');
+
+
+
+
+
+Route::post('/graph-rag/callback', [WebhookController::class, 'handle' ]);
