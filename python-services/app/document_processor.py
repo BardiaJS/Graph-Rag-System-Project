@@ -12,5 +12,8 @@ class DocumentProcessor:
     def chunking_service(self):
         return self.service.chunking_service()
 
+    def ocr_plan(self):
+        return self.service.plan_ocr()
+
     def figures_service(self, output_dir):
         return self.service.extract_figures(output_dir)

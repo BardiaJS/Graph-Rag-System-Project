@@ -7,7 +7,6 @@ use App\Http\Requests\Session\SessionCreateRequest;
 use App\Http\Requests\Session\SessionUpdateRequest;
 use App\Models\ChatSession;
 use App\Models\Question;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class SessionController extends Controller

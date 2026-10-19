@@ -5,7 +5,7 @@ Heavy imports (docling, torch, sentence-transformers) are done lazily inside the
 so the API can import this module (for the callbacks) without loading any models.
 
 Stages reported through job.meta:
-    queued -> converting -> chunking -> embedding -> graph -> entities -> done
+    queued -> converting -> chunking -> figures -> embedding -> graph -> entities -> done
 """
 import logging
 import os
@@ -86,13 +86,19 @@ def process_document_job(
     )
     from app.services.embedding_service import upload_chunks
     from app.services.entity_service import extract_and_store_entities
+    from app.services.figure_service import (
+        figure_dir,
+        purge_figure_files,
+        store_figures,
+    )
     from app.services.graph_service import build_graph, delete_document_graph
 
     document_id = int(document_id)
     user_id = str(user_id)
 
-    _stage("converting")
     processor = DocumentProcessor(file_path)
+    ocr = processor.ocr_plan()  # cheap text-layer check, done before the slow conversion
+    _stage("converting", ocr=ocr["use_ocr"], pdf_kind=ocr["kind"])
     markdown = processor.docling_service()
 
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
@@ -106,16 +112,37 @@ def process_document_job(
         "document_id": document_id,
         "chunks": len(chunks),
         "markdown_path": str(markdown_path),
+        "ocr": ocr,
         "entities": None,
         "entity_error": None,
+        "figures": None,
+        "figure_error": None,
     }
+
+    # Figures: extract the images now (the converted document is cached, so this costs
+    # no extra parsing). Linking to chunks happens after the graph exists. A failure here
+    # must not stop text indexing, so it is recorded instead of raised.
+    _stage("figures")
+    figures = []
+    purge_figure_files(document_id)  # a re-run never leaves stale images
+    try:
+        figures = processor.figures_service(figure_dir(document_id))
+    except Exception as e:
+        logger.error(f"Figure extraction failed for document {document_id}: {e}")
+        summary["figure_error"] = str(e)
 
     if not chunks:
         # Nothing extractable (e.g. scanned PDF with OCR disabled): clear old data.
         _purge_qdrant(document_id)
         delete_document_graph(document_id)
+        purge_figure_files(document_id)
         _stage("done")
-        summary["warning"] = "No text chunks extracted"
+        summary["warning"] = (
+            "No text chunks extracted"
+            + (" even with OCR" if ocr["use_ocr"] else
+               " (PDF looks image-only: set DOCLING_OCR=on or install an OCR engine)"
+               if ocr["kind"] != "digital" else "")
+        )
         return summary
 
     _debug(print_chunks_summary, chunks)
@@ -132,6 +159,15 @@ def process_document_job(
         title=f"Document {document_id}",
         user_id=user_id,
     )
+
+    if figures:
+        try:
+            summary["figures"] = store_figures(document_id, figures, chunks)
+        except Exception as e:
+            logger.error(f"Storing figures failed for document {document_id}: {e}")
+            summary["figure_error"] = str(e)
+    else:
+        summary["figures"] = {"figures": 0, "links": 0, "unlinked": 0}
 
     if ENABLE_ENTITY_EXTRACTION:
         # An enhancement: if Ollama is down the document is still searchable,

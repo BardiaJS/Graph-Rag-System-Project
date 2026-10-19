@@ -1,4 +1,10 @@
 """
+OPTIONAL server-side agent loop (POST /ask, disabled unless ENABLE_AGENT_ENDPOINT=1).
+
+The intended home for this loop is the Laravel backend. The Python service exposes the
+deterministic parts it needs, POST /retrieve and POST /verify, so this module is a working
+reference implementation of the same loop, kept for prompts and for end-to-end testing.
+
 Agentic question answering over one or more documents.
 
 Flow:
@@ -13,40 +19,30 @@ Every step is appended to `trace`, so the caller can show how the answer was rea
 """
 import logging
 import os
-import re
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.services import llm_service
+from app.services.retrieval_service import (
+    Evidence,
+    SubQuestion,
+    attach_figures,
+    collect,
+    parse_queries,
+    select_evidence,
+)
+from app.services.verify_service import verify_answer
 
 logger = logging.getLogger(__name__)
 
 MAX_SUBQUESTIONS = int(os.getenv("AGENT_MAX_SUBQUESTIONS", 4))
 MAX_ITERATIONS = int(os.getenv("AGENT_MAX_ITERATIONS", 3))
-HITS_PER_QUERY = int(os.getenv("AGENT_HITS_PER_QUERY", 4))
-EVIDENCE_PER_DOC = int(os.getenv("AGENT_EVIDENCE_PER_DOC", 6))
 GRADE_SNIPPET_CHARS = 500
 
-CITE_RE = re.compile(r"\[([^\[\]]*?S\d+[^\[\]]*?)\]")
 
 
-@dataclass
-class Evidence:
-    document_id: int
-    chunk_index: int
-    page: Optional[int]
-    headings: List[str]
-    text: str
-    score: float
-    via: List[str] = field(default_factory=list)  # shared entities, if graph-linked
-    figures: List[dict] = field(default_factory=list)  # figures linked to this chunk
-    sid: str = ""  # assigned just before synthesis
 
 
-@dataclass
-class SubQuestion:
-    q: str
-    document_ids: List[int]
 
 
 @dataclass
@@ -76,118 +72,17 @@ Question: {question}"""
         [{"role": "user", "content": prompt}],
         default={},
     )
-    subs = _parse_subquestions(data.get("sub_questions"), doc_ids)
+    subs = parse_queries(data.get("sub_questions"), doc_ids)
     if not subs:  # fallback: single pass over all docs
         subs = [SubQuestion(q=question, document_ids=list(doc_ids))]
     trace.append({"step": "plan", "sub_questions": [asdict(s) for s in subs]})
     return subs[:MAX_SUBQUESTIONS]
 
 
-def _parse_subquestions(raw: Any, allowed: List[int]) -> List[SubQuestion]:
-    """Validate LLM output. The model may never widen scope beyond `allowed`."""
-    out: List[SubQuestion] = []
-    if not isinstance(raw, list):
-        return out
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        q = str(item.get("q", "")).strip()
-        if not q:
-            continue
-        ids = []
-        for d in item.get("document_ids") or []:
-            try:
-                d = int(d)
-            except (TypeError, ValueError):
-                continue
-            if d in allowed and d not in ids:
-                ids.append(d)
-        out.append(SubQuestion(q=q, document_ids=ids or list(allowed)))
-    return out
 
 
 # --------------------------------------------------------------- retrieval
 
-def _retrieve(
-    subs: List[SubQuestion],
-    store: Dict[Tuple[int, int], Evidence],
-    trace: list,
-    allowed_doc_ids: List[int],
-) -> int:
-    """Run each sub-question against each target document (vector + neighbour chunks),
-    then follow shared entities to related chunks in ANY allowed document.
-    Returns # new chunks."""
-    from app.services.embedding_service import search_with_graph
-    from app.services.graph_service import chunk_key, find_chunks_via_entities
-
-    new_chunks = 0
-    for sub in subs:
-        direct_keys: List[str] = []
-        for doc_id in sub.document_ids:
-            hits = search_with_graph(
-                query=sub.q, limit=HITS_PER_QUERY, document_id=doc_id
-            )
-            added = 0
-            for h in hits:
-                idx = h.get("chunk_index")
-                if idx is None:
-                    continue
-                key = (doc_id, idx)
-                if h.get("source") != "graph":  # real vector hit, not a neighbour
-                    direct_keys.append(chunk_key(doc_id, idx))
-                score = float(h.get("score") or 0.0)
-                if key in store:
-                    store[key].score = max(store[key].score, score)
-                    continue
-                store[key] = Evidence(
-                    document_id=doc_id,
-                    chunk_index=idx,
-                    page=h.get("page"),
-                    headings=h.get("headings") or [],
-                    text=h.get("text") or "",
-                    score=score,
-                )
-                added += 1
-            new_chunks += added
-            trace.append({
-                "step": "retrieve",
-                "query": sub.q,
-                "document_id": doc_id,
-                "hits": len(hits),
-                "new": added,
-            })
-
-        # Graph hop: chunks that share entities with this sub-question's direct hits.
-        try:
-            linked = find_chunks_via_entities(direct_keys, allowed_doc_ids, limit=6)
-        except Exception as e:  # Neo4j down must not kill the answer
-            logger.warning(f"Entity expansion failed: {e}")
-            linked = []
-        added = 0
-        for row in linked:
-            key = (int(row["document_id"]), row["idx"])
-            if key in store:
-                continue
-            # Ranked below direct vector hits; more shared entities -> slightly higher.
-            store[key] = Evidence(
-                document_id=key[0],
-                chunk_index=row["idx"],
-                page=row.get("page"),
-                headings=row.get("headings") or [],
-                text=row.get("text") or "",
-                score=min(0.75, 0.5 + 0.05 * row.get("shared", 1)),
-                via=row.get("via") or [],
-            )
-            added += 1
-        new_chunks += added
-        trace.append({
-            "step": "entity_expand",
-            "query": sub.q,
-            "linked": len(linked),
-            "new": added,
-            "via": sorted({v for r in linked for v in (r.get("via") or [])})[:10],
-        })
-    return new_chunks
 
 
 # ----------------------------------------------------------------- grading
@@ -231,7 +126,7 @@ Return JSON only:
         trace.append({"step": "grade", "sufficient": True})
         return []
 
-    follow_ups = _parse_subquestions(data.get("missing"), doc_ids)[:3]
+    follow_ups = parse_queries(data.get("missing"), doc_ids)[:3]
     trace.append({
         "step": "grade",
         "sufficient": False,
@@ -242,22 +137,6 @@ Return JSON only:
 
 # ---------------------------------------------------------------- synthesis
 
-def _select_evidence(store: Dict[Tuple[int, int], Evidence]) -> List[Evidence]:
-    """Top-K per document (so one document can't crowd out the others), then
-    ordered by document and position so the context reads naturally."""
-    by_doc: Dict[int, List[Evidence]] = {}
-    for e in store.values():
-        by_doc.setdefault(e.document_id, []).append(e)
-
-    chosen: List[Evidence] = []
-    for doc_id, items in by_doc.items():
-        items.sort(key=lambda e: e.score, reverse=True)
-        chosen.extend(items[:EVIDENCE_PER_DOC])
-
-    chosen.sort(key=lambda e: (e.document_id, e.chunk_index))
-    for i, e in enumerate(chosen, start=1):
-        e.sid = f"S{i}"
-    return chosen
 
 
 def _label(e: Evidence) -> str:
@@ -271,37 +150,6 @@ def _label(e: Evidence) -> str:
     return ", ".join(parts)
 
 
-def _attach_figures(evidence: List[Evidence], trace: list) -> None:
-    """Look up figures linked (caption / in-text mention / nearby) to the chosen chunks."""
-    from app.services.graph_service import chunk_key, get_figures_for_chunks
-
-    by_key = {chunk_key(e.document_id, e.chunk_index): e for e in evidence}
-    try:
-        rows = get_figures_for_chunks(list(by_key))
-    except Exception as e:  # figures are an enhancement; never break the answer
-        logger.warning(f"Figure lookup failed: {e}")
-        return
-
-    seen = set()
-    for r in rows:
-        owner = by_key.get(r["chunk_key"])
-        if owner is None:
-            continue
-        fk = (owner.sid, r["document_id"], r["figure_index"])
-        if fk in seen:
-            continue
-        seen.add(fk)
-        owner.figures.append({
-            "document_id": r["document_id"],
-            "figure_index": r["figure_index"],
-            "label": r.get("label"),
-            "number": r.get("number"),
-            "caption": r.get("caption") or "",
-            "page": r.get("page"),
-            "relation": r.get("rel"),
-            "image_url": f"/documents/{r['document_id']}/figures/{r['figure_index']}/image",
-        })
-    trace.append({"step": "figures", "linked": len(seen)})
 
 
 def _figure_lines(e: Evidence) -> str:
@@ -316,26 +164,6 @@ def _figure_lines(e: Evidence) -> str:
     return "\nLinked figures:\n" + "\n".join(lines)
 
 
-def _verify_figures(answer: str, evidence: List[Evidence]) -> List[str]:
-    """Every 'Figure N' the answer mentions must exist in the retrieved material,
-    either as a linked figure or in a source's own text. Flags (does not rewrite)
-    anything else, because a fabricated figure reference is a hard failure."""
-    from app.services.figure_service import extract_figure_numbers
-
-    allowed = set()
-    for e in evidence:
-        allowed |= extract_figure_numbers(e.text)
-        for f in e.figures:
-            if f.get("number"):
-                allowed.add(str(f["number"]))
-
-    unverified = sorted(extract_figure_numbers(answer) - allowed, key=int)
-    if not unverified:
-        return []
-    return [
-        "Answer mentions figure(s) not found in the retrieved sources: "
-        + ", ".join(f"Figure {n}" for n in unverified)
-    ]
 
 
 def _synthesize(question: str, evidence: List[Evidence]) -> str:
@@ -361,31 +189,6 @@ def _synthesize(question: str, evidence: List[Evidence]) -> str:
 
 # ------------------------------------------------------------- verification
 
-def _verify(answer: str, evidence: List[Evidence]) -> Tuple[str, List[Evidence], List[str]]:
-    """Remove citations that don't map to a retrieved source; report what happened."""
-    valid = {e.sid for e in evidence}
-    warnings: List[str] = []
-    invalid_seen: set = set()
-
-    def fix(match: re.Match) -> str:
-        ids = re.findall(r"S\d+", match.group(1))
-        good = [i for i in ids if i in valid]
-        invalid_seen.update(i for i in ids if i not in valid)
-        return "".join(f"[{i}]" for i in good)
-
-    cleaned = CITE_RE.sub(fix, answer)
-
-    if invalid_seen:
-        warnings.append(
-            f"Removed citations to non-existent sources: {sorted(invalid_seen)}"
-        )
-
-    cited_ids = set(re.findall(r"\[(S\d+)\]", cleaned))
-    if not cited_ids:
-        warnings.append("Answer contains no verifiable citations.")
-
-    cited = [e for e in evidence if e.sid in cited_ids]
-    return cleaned, cited, warnings
 
 
 # --------------------------------------------------------------- public API
@@ -401,7 +204,7 @@ def answer_question(question: str, document_ids: List[int]) -> AgentResult:
 
     for iteration in range(1, MAX_ITERATIONS + 1):
         trace.append({"step": "iteration", "n": iteration})
-        new_chunks = _retrieve(pending, store, trace, document_ids)
+        new_chunks = collect(pending, store, trace, document_ids)
 
         # Stop if a follow-up round brought nothing new, or this was the last round.
         if iteration > 1 and new_chunks == 0:
@@ -414,7 +217,9 @@ def answer_question(question: str, document_ids: List[int]) -> AgentResult:
         if not pending:
             break
 
-    evidence = _select_evidence(store)
+    evidence = select_evidence(store)
+    for i, e in enumerate(evidence, start=1):
+        e.sid = f"S{i}"  # source ids are an orchestration concern, assigned here
     if not evidence:
         return AgentResult(
             answer="I couldn't find any relevant content in the selected documents.",
@@ -423,10 +228,19 @@ def answer_question(question: str, document_ids: List[int]) -> AgentResult:
             warnings=["No evidence retrieved."],
         )
 
-    _attach_figures(evidence, trace)
+    attach_figures(evidence, trace)
     raw_answer = _synthesize(question, evidence)
-    answer, cited, warnings = _verify(raw_answer, evidence)
-    warnings += _verify_figures(answer, evidence)
+    check = verify_answer(raw_answer, [
+        {
+            "sid": e.sid,
+            "text": e.text,
+            "figure_numbers": [f["number"] for f in e.figures if f.get("number")],
+        }
+        for e in evidence
+    ])
+    answer, warnings = check["answer"], check["warnings"]
+    cited_ids = set(check["cited_sids"])
+    cited = [e for e in evidence if e.sid in cited_ids]
     trace.append({"step": "synthesize", "sources_in_context": len(evidence),
                   "sources_cited": len(cited)})
 
