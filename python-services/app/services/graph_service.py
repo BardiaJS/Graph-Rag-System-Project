@@ -356,3 +356,36 @@ def get_figures_for_chunks(chunk_keys: List[str]) -> List[dict]:
             """,
             keys=chunk_keys,
         ).data()
+
+
+_DOC_STATS = """
+    CALL { WITH d MATCH (c:Chunk {document_id: d.id}) RETURN count(c) AS chunks }
+    CALL { WITH d OPTIONAL MATCH (d)-[:HAS_FIGURE]->(f:Figure) RETURN count(f) AS figures }
+    CALL { WITH d OPTIONAL MATCH (:Chunk {document_id: d.id})-[:MENTIONS]->(e:Entity)
+           RETURN count(DISTINCT e) AS entities }
+    RETURN d.id AS document_id, d.title AS title, d.user_id AS user_id,
+           chunks, figures, entities
+"""
+
+
+def list_documents(user_id: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[dict]:
+    """Documents in the graph with their sizes. user_id=None lists everything
+    (internal/admin use); Laravel should always pass the owner's id."""
+    with get_driver().session() as session:
+        return session.run(
+            "MATCH (d:Document) WHERE $user_id IS NULL OR d.user_id = $user_id "
+            + _DOC_STATS
+            + " ORDER BY d.id SKIP $skip LIMIT $limit",
+            user_id=None if user_id is None else str(user_id),
+            skip=int(offset),
+            limit=int(limit),
+        ).data()
+
+
+def get_document(document_id: int) -> Optional[dict]:
+    with get_driver().session() as session:
+        rows = session.run(
+            "MATCH (d:Document {id: $id}) " + _DOC_STATS,
+            id=int(document_id),
+        ).data()
+    return rows[0] if rows else None

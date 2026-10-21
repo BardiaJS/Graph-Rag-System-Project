@@ -143,7 +143,7 @@ def search_with_graph(query: str, limit: int = 5, document_id: int = None):
                     "page": n["page"],
                     "chunk_index": n["idx"],
                     "document_id": document_id,
-                    "headings": [],
+                    "headings": n.get("headings") or [],
                     "score": r["score"] * 0.9,
                     "source": "graph",
                 })

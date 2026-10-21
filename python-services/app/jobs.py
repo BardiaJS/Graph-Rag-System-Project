@@ -9,7 +9,6 @@ Stages reported through job.meta:
 """
 import logging
 import os
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 import requests
@@ -17,7 +16,6 @@ from rq import get_current_job
 
 logger = logging.getLogger(__name__)
 
-PROCESSED_DIR = Path(os.getenv("PROCESSED_DIR", "./data/processed"))
 CALLBACK_URL = os.getenv("LARAVEL_CALLBACK_URL")  # fixed in config, NOT taken from requests (SSRF)
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
 DEBUG_PRINTS = os.getenv("DEBUG_PRINTS", "1") == "1"
@@ -44,29 +42,6 @@ def _debug(fn, *args, **kwargs) -> None:
         logger.warning(f"debug helper {fn.__name__} failed: {e}")
 
 
-def _purge_qdrant(document_id: int) -> None:
-    """Delete all existing points of a document so a re-run never leaves stale chunks
-    (e.g. a re-upload that now yields fewer chunks)."""
-    from qdrant_client import models
-
-    from app.services import embedding_service as emb
-
-    emb.ensure_collection()
-    emb.client.delete(
-        collection_name=emb.COLLECTION_NAME,
-        points_selector=models.FilterSelector(
-            filter=models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="document_id",
-                        match=models.MatchValue(value=document_id),
-                    )
-                ]
-            )
-        ),
-    )
-
-
 # --------------------------------------------------------------------- job
 
 def process_document_job(
@@ -85,6 +60,8 @@ def process_document_job(
         print_qdrant_points,
     )
     from app.services.embedding_service import upload_chunks
+    from app.services.document_service import markdown_path as markdown_file
+    from app.services.document_service import purge_qdrant
     from app.services.entity_service import extract_and_store_entities
     from app.services.figure_service import (
         figure_dir,
@@ -101,8 +78,8 @@ def process_document_job(
     _stage("converting", ocr=ocr["use_ocr"], pdf_kind=ocr["kind"])
     markdown = processor.docling_service()
 
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    markdown_path = PROCESSED_DIR / f"{document_id}.md"
+    markdown_path = markdown_file(document_id)
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
     markdown_path.write_text(markdown, encoding="utf-8")
 
     _stage("chunking")
@@ -133,7 +110,7 @@ def process_document_job(
 
     if not chunks:
         # Nothing extractable (e.g. scanned PDF with OCR disabled): clear old data.
-        _purge_qdrant(document_id)
+        purge_qdrant(document_id)
         delete_document_graph(document_id)
         purge_figure_files(document_id)
         _stage("done")
@@ -148,7 +125,7 @@ def process_document_job(
     _debug(print_chunks_summary, chunks)
 
     _stage("embedding", total=len(chunks))
-    _purge_qdrant(document_id)
+    purge_qdrant(document_id)
     summary["qdrant_points"] = upload_chunks(chunks, user_id=user_id, document_id=document_id)
     _debug(print_qdrant_points, document_id=document_id, limit=5)
 
@@ -204,12 +181,32 @@ def _notify(payload: Dict[str, Any]) -> None:
         logger.warning(f"Callback to {CALLBACK_URL} failed: {e}")
 
 
+def _callback_fields(result: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Flat integers/strings, matching the Laravel webhook's validation rules."""
+    r = result or {}
+    entities = r.get("entities") or {}
+    figures = r.get("figures") or {}
+    ocr = r.get("ocr") or {}
+    return {
+        "pages": ocr.get("pages_total"),
+        "chunks": int(r.get("chunks") or 0),
+        "entities": int(entities.get("entities") or 0),
+        "figures": int(figures.get("figures") or 0),
+        "qdrant_points": int(r.get("qdrant_points") or 0),
+        "ocr_used": bool(ocr.get("use_ocr")),
+        "pdf_kind": ocr.get("kind"),
+        "entity_error": r.get("entity_error"),
+        "figure_error": r.get("figure_error"),
+        "warning": r.get("warning"),
+    }
+
+
 def on_success(job, connection, result, *args, **kwargs):
     _notify({
         "job_id": job.id,
         "document_id": job.meta.get("document_id"),
         "status": "success",
-        "result": result,
+        **_callback_fields(result),
     })
 
 
