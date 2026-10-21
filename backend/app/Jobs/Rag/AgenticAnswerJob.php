@@ -6,12 +6,12 @@ use App\Models\Answer;
 use App\Models\ChatSession;
 use App\Models\Question;
 use App\Models\User;
+use App\Services\AgentService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class AgenticAnswerJob implements ShouldQueue
@@ -19,7 +19,11 @@ class AgenticAnswerJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $tries = 1;
-    public $timeout = 350;
+
+    // The loop can make several LLM calls. IMPORTANT: your queue connection's
+    // `retry_after` (config/queue.php) must be LARGER than this, and `queue:work`
+    // must run with --timeout larger than this, otherwise the job is picked up twice.
+    public $timeout = 900;
 
     protected $user;
     protected $session;
@@ -34,85 +38,21 @@ class AgenticAnswerJob implements ShouldQueue
         $this->documentIds = $documentIds;
     }
 
-    /**
-     * سوال رو به sub-queryها تقسیم کن (Agentic RAG)
-     */
-    protected function planQueries(string $question, string $ollamaUrl, string $ollamaModel): array
+    public function handle(AgentService $agent)
     {
-        $prompt = "You are a query planner. Break down the user's question into 1-3 sub-queries " .
-                "that can be searched independently.\n\n" .
-                "User question: {$question}\n\n" .
-                "Return ONLY a JSON object like this (no markdown, no explanation):\n" .
-                '{"sub_queries": ["query 1", "query 2"], "reasoning": "why"}' . "\n\n" .
-                "If the question is simple, return only 1 sub-query.";
-
-        $payload = [
-            'model' => $ollamaModel,
-            'messages' => [
-                ['role' => 'user', 'content' => $prompt],
-            ],
-            'temperature' => 0.1,
-            'options' => [
-                'num_ctx' => 4096,
-                'num_predict' => 256,
-            ],
-            'keep_alive' => '10m',
-        ];
-
-        $json = json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE);
-
-        try {
-            $response = Http::timeout(60)
-                ->connectTimeout(10)
-                ->withHeaders(['Content-Type' => 'application/json'])
-                ->withBody($json, 'application/json')
-                ->post("{$ollamaUrl}/v1/chat/completions");
-
-            $content = $response->json('choices.0.message.content') ?? '';
-
-            Log::info('AgenticAnswerJob: plan response', [
-                'content' => substr($content, 0, 300),
-            ]);
-
-            if (preg_match('/\{.*\}/s', $content, $matches)) {
-                $parsed = json_decode($matches[0], true);
-                if (isset($parsed['sub_queries']) && is_array($parsed['sub_queries'])) {
-                    $subQueries = array_values(array_filter($parsed['sub_queries'], 'is_string'));
-                    if (!empty($subQueries)) {
-                        return [
-                            'sub_queries' => $subQueries,
-                            'reasoning' => $parsed['reasoning'] ?? '',
-                        ];
-                    }
-                }
-            }
-        } catch (\Exception $e) {
-            Log::warning('AgenticAnswerJob: planQueries failed', [
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        return [
-            'sub_queries' => [$question],
-            'reasoning' => 'fallback',
-        ];
-    }
-
-    public function handle()
-    {
-        $pythonServiceUrl = config('services.python_processor.url', 'http://localhost:8001');
-        $ollamaUrl = config('services.ollama.url', 'http://localhost:11434');
-
         // ⭐ تشخیص زبان سوال
-        $isPersian = preg_match('/[\x{0600}-\x{06FF}]/u', $this->question->content);
+        $isPersian = (bool) preg_match('/[\x{0600}-\x{06FF}]/u', $this->question->content);
 
         if ($isPersian) {
-            $ollamaModel = 'gemma3:4b';   // ← چندزبانه، فارسی خوب
+            $ollamaModel = 'gemma3:4b';   // چندزبانه، فارسی خوب
             $answerLanguage = 'Persian (فارسی)';
+            $extraInstructions = 'DO NOT use Chinese characters (汉字). '
+                . "DO NOT use English except for names like 'Rasmus Lerdorf' and code like 'array'.";
             Log::info('AgenticAnswerJob: Persian detected, using gemma3:4b');
         } else {
             $ollamaModel = 'llama3.2';
             $answerLanguage = 'English';
+            $extraInstructions = null;
             Log::info('AgenticAnswerJob: English detected, using llama3.2');
         }
 
@@ -135,177 +75,63 @@ class AgenticAnswerJob implements ShouldQueue
                         'answer' => $answer ? $this->cleanUtf8($answer->content) : '',
                     ];
                 })
+                ->values()
                 ->toArray();
 
-            Log::info('AgenticAnswerJob: history loaded', [
-                'count' => count($history),
-            ]);
+            Log::info('AgenticAnswerJob: history loaded', ['count' => count($history)]);
 
-            // ⭐ ۲. Plan queries (Agentic RAG)
-            $plan = $this->planQueries(
+            // ⭐ ۲. Plan → retrieve (all documents) → grade → answer → verify
+            $result = $agent->answer(
                 $this->cleanUtf8($this->question->content),
-                $ollamaUrl,
-                $ollamaModel
+                $this->documentIds,
+                [
+                    'model' => $ollamaModel,
+                    'history' => $history,
+                    'answer_language' => $answerLanguage,
+                    'extra_instructions' => $extraInstructions,
+                ]
             );
 
-            $subQueries = $plan['sub_queries'];
-            $reasoning = $plan['reasoning'];
-
-            Log::info('AgenticAnswerJob: plan created', [
+            Log::info('AgenticAnswerJob: answer ready', [
                 'q_id' => $this->question->id,
-                'sub_queries' => $subQueries,
-                'reasoning' => $reasoning,
+                'citations' => count($result['citations']),
+                'warnings' => $result['warnings'],
             ]);
 
-            // ⭐ ۳. برای هر sub-query، search جدا
-            $allResults = [];
-            $seenIds = [];
+            // ⭐ ۳. Sources (old keys kept for the frontend, new keys added)
+            $sources = array_map(fn ($c) => [
+                'text' => $this->cleanUtf8($c['quote'] ?? ''),
+                'headings' => $c['headings'] ?? [],
+                'page' => $c['page'] ?? null,
+                'score' => $c['score'] ?? 0,
+                'chunk_index' => $c['chunk_index'] ?? null,
+                'source' => !empty($c['linked_via']) ? 'graph' : 'vector',
+                // new
+                'id' => $c['id'] ?? null,
+                'document_id' => $c['document_id'] ?? null,
+                'figures' => $c['figures'] ?? [],
+                'linked_via' => $c['linked_via'] ?? [],
+            ], $result['citations']);
 
-            foreach ($subQueries as $sq) {
-                $searchPayload = [
-                    'query' => $this->cleanUtf8($sq),
-                    'limit' => 3,
-                    'document_id' => (int) $this->documentIds[0],
-                    'use_graph' => true,   // ← اضافه شد
-                ];
-
-                $searchJson = json_encode($searchPayload, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE);
-
-                $searchResponse = Http::timeout(30)
-                    ->withHeaders(['Content-Type' => 'application/json'])
-                    ->withBody($searchJson, 'application/json')
-                    ->post("{$pythonServiceUrl}/search");
-
-                if (!$searchResponse->successful()) {
-                    Log::warning('AgenticAnswerJob: sub-search failed', [
-                        'sub_query' => $sq,
-                        'status' => $searchResponse->status(),
-                    ]);
-                    continue;
+            $subQueries = [];
+            $searches = 0;
+            foreach ($result['trace'] as $step) {
+                if (($step['step'] ?? null) === 'plan') {
+                    $subQueries = array_map(fn ($s) => $s['q'], $step['sub_questions'] ?? []);
                 }
-
-                $subResults = $searchResponse->json('results') ?? [];
-
-                foreach ($subResults as $r) {
-                    $key = ($r['document_id'] ?? '') . '_' . ($r['chunk_index'] ?? '');
-                    if (!isset($seenIds[$key])) {
-                        $allResults[] = $r;
-                        $seenIds[$key] = true;
-                    }
+                if (($step['step'] ?? null) === 'retrieve') {
+                    $searches++;
                 }
             }
 
-            $results = $allResults;
-
-            Log::info('AgenticAnswerJob: search done', [
-                'q_id' => $this->question->id,
-                'sub_queries_count' => count($subQueries),
-                'total_results' => count($results),
-            ]);
-
-            // ⭐ ۴. Context
-            $context = collect($results)
-                ->take(5)
-                ->map(fn($r, $i) => "[" . ($i + 1) . "] " . $this->cleanUtf8(substr($r['text'], 0, 200)))
-                ->implode("\n\n");
-
-            // ⭐ ۵. تاریخچه به متن
-            $historyText = "";
-            if (!empty($history)) {
-                $historyText = "Previous conversation:\n";
-                foreach ($history as $h) {
-                    $historyText .= "User: {$h['question']}\n";
-                    if (!empty($h['answer'])) {
-                        $historyText .= "Assistant: " . substr($h['answer'], 0, 200) . "\n";
-                    }
-                    $historyText .= "\n";
-                }
-                $historyText .= "---\n\n";
-            }
-
-            // ⭐ ۶. Prompt
-            $prompt = $historyText .
-                "You are a helpful assistant. Answer the current question based on the context.\n\n" .
-                "Context:\n{$context}\n\n" .
-                "Current question: " . $this->cleanUtf8($this->question->content) . "\n\n" .
-                "CRITICAL: You MUST answer ONLY in {$answerLanguage}.\n" .
-                "DO NOT use Chinese characters (汉字).\n" .
-                "DO NOT use English (except for names like 'Rasmus Lerdorf' and code like 'array').\n" .
-                "Answer:";
-
-                Log::info('AgenticAnswerJob: prompt debug', [
-                    'history_len' => strlen($historyText),
-                    'context_len' => strlen($context),
-                    'answer_language' => $answerLanguage,
-                    'prompt_len_raw' => strlen($prompt),
-                    'prompt_first_200' => substr($prompt, 0, 200),
-                ]);
-
-            // ⭐ ۸. LLM
-            $llmPayload = [
-                'model' => $ollamaModel,
-                'messages' => [
-                    [
-                        'role' => 'user',
-                        'content' => $prompt,
-                    ],
-                ],
-                'temperature' => 0.05,
-                'options' => [
-                    'num_ctx' => 8192,
-                    'num_predict' => 512,
-                    'repeat_penalty' => 1.1,
-                ],
-                'keep_alive' => '10m',
-            ];
-
-            $llmJson = json_encode($llmPayload, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE);
-
-            Log::info('AgenticAnswerJob: llm payload', [
-                'q_id' => $this->question->id,
-                'json_error' => json_last_error_msg(),
-                'json_len' => strlen($llmJson),
-            ]);
-
-            if ($llmJson === false) {
-                throw new \Exception("Failed to encode LLM payload: " . json_last_error_msg());
-            }
-
-            $llmResponse = Http::timeout(280)
-                ->connectTimeout(10)
-                ->withHeaders(['Content-Type' => 'application/json'])
-                ->withBody($llmJson, 'application/json')
-                ->post("{$ollamaUrl}/v1/chat/completions");
-
-            if (!$llmResponse->successful()) {
-                throw new \Exception("LLM failed: " . $llmResponse->body());
-            }
-
-            $answer = $llmResponse->json('choices.0.message.content');
-
-            Log::info('AgenticAnswerJob: after LLM', [
-                'q_id' => $this->question->id,
-                'answer_len' => strlen($answer),
-            ]);
-
-            // ⭐ ۹. Sources
-            $sources = collect($results)->map(fn($r) => [
-                'text' => $this->cleanUtf8($r['text']),
-                'headings' => $r['headings'] ?? [],
-                'page' => $r['page'] ?? null,
-                'score' => $r['score'] ?? 0,
-                'chunk_index' => $r['chunk_index'] ?? null,
-                'source' => $r['source'] ?? 'vector',
-            ])->toArray();
-
-            // ⭐ ۱۰. ذخیره
+            // ⭐ ۴. ذخیره
             $this->saveAnswer(
-                $this->cleanUtf8($answer),
+                $this->cleanUtf8($result['answer']),
                 $sources,
                 $subQueries,
-                [$reasoning]
+                ['trace' => $result['trace'], 'warnings' => $result['warnings']],
+                $searches
             );
-
         } catch (\Exception $e) {
             Log::error('AgenticAnswerJob failed', [
                 'question_id' => $this->question->id,
@@ -325,46 +151,51 @@ class AgenticAnswerJob implements ShouldQueue
     /**
      * حذف کاراکترهای غیر UTF-8
      */
-protected function cleanUtf8(?string $text): string
-{
-    if ($text === null) {
-        return '';
+    protected function cleanUtf8(?string $text): string
+    {
+        if ($text === null) {
+            return '';
+        }
+
+        // ۱. حذف BOM
+        $text = preg_replace('/^\x{FEFF}/u', '', $text);
+
+        // ۲. حذف کاراکترهای کنترلی (به جز \n \r \t)
+        $text = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $text);
+
+        // ۳. اگه UTF-8 معتبر نبود، با iconv تمیز کن
+        if (!mb_check_encoding($text, 'UTF-8')) {
+            $text = @iconv('UTF-8', 'UTF-8//IGNORE', $text);
+        }
+
+        // ۴. حذف byteهای ناقص (اینا واقعاً مشکل‌دارن)
+        $text = preg_replace('/\\\\uD[89AB][0-9A-F]{2}/i', '', $text);
+
+        // ۵. اطمینان نهایی
+        if (!mb_check_encoding($text, 'UTF-8')) {
+            $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+        }
+
+        return $text;
     }
-
-    // ۱. حذف BOM
-    $text = preg_replace('/^\x{FEFF}/u', '', $text);
-
-    // ۲. حذف کاراکترهای کنترلی (به جز \n \r \t)
-    $text = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $text);
-
-    // ۳. اگه UTF-8 معتبر نبود، با iconv تمیز کن
-    if (!mb_check_encoding($text, 'UTF-8')) {
-        $text = @iconv('UTF-8', 'UTF-8//IGNORE', $text);
-    }
-
-    // ۴. حذف byteهای ناقص (اینا واقعاً مشکل‌دارن)
-    $text = preg_replace('/\\\\uD[89AB][0-9A-F]{2}/i', '', $text);
-
-    // ۵. اطمینان نهایی
-    if (!mb_check_encoding($text, 'UTF-8')) {
-        $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
-    }
-
-    return $text;
-}
 
     /**
      * ذخیره جواب
      */
-    protected function saveAnswer(string $content, array $sources, array $subQueries = [], array $searchPlans = []): void
-    {
+    protected function saveAnswer(
+        string $content,
+        array $sources,
+        array $subQueries = [],
+        array $searchPlans = [],
+        int $numSearches = 0
+    ): void {
         Answer::create([
             'question_id' => $this->question->id,
             'content' => $content,
             'sources' => $sources,
             'sub_queries' => $subQueries,
             'search_plans' => $searchPlans,
-            'num_searches' => count($sources),
+            'num_searches' => $numSearches,
             'version' => 1,
             'is_latest' => true,
             'answered_at' => now(),

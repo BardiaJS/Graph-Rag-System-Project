@@ -10,6 +10,8 @@ use App\Jobs\Rag\AgenticAnswerJob;
 use App\Models\ChatSession;
 use App\Models\Document;
 use App\Models\Question;
+use App\Services\GraphRagClient;
+use App\Services\GraphRagException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -23,7 +25,7 @@ class DocumentController extends Controller
     public function getDocuments(ChatSession $session)
     {
         $user = Auth::user();
-        
+
         if (!$user) {
             return response()->json([
                 'message' => 'Unauthenticated'
@@ -52,7 +54,7 @@ class DocumentController extends Controller
     public function get_document(Document $document)
     {
         $user = Auth::user();
-        
+
         if (!$user) {
             return response()->json([
                 'message' => 'Unauthenticated'
@@ -73,16 +75,26 @@ class DocumentController extends Controller
     }
 
     /**
-     * دریافت همه اسناد کاربر (بدون فیلتر Session)
+     * لیست اسناد یک جلسه (route: GET /sessions/{session}/documents)
+     *
+     * FIX: this route previously checked only that the user was logged in, so any
+     * authenticated user could list the documents of ANY session. It now checks that the
+     * session belongs to the user, exactly like getDocuments().
      */
     public function documents(ChatSession $session)
     {
         $user = Auth::user();
-        
+
         if (!$user) {
             return response()->json([
                 'message' => 'Unauthenticated'
             ], 401);
+        }
+
+        if ($session->user_id !== $user->id) {
+            return response()->json([
+                'message' => 'You do not have access to this session'
+            ], 403);
         }
 
         $documents = Document::where('chat_session_id', $session->id)
@@ -101,7 +113,7 @@ class DocumentController extends Controller
     public function getQuestions(ChatSession $session)
     {
         $user = Auth::user();
-        
+
         if (!$user) {
             return response()->json([
                 'message' => 'Unauthenticated'
@@ -132,44 +144,44 @@ class DocumentController extends Controller
     {
         // ۱. دریافت کاربر از احراز هویت
         $user = $request->user();
-        
+
         if (!$user) {
             return response()->json([
                 'message' => 'Unauthenticated'
             ], 401);
         }
-        
+
         // ۲. بررسی مالکیت سشن
         if ($session->user_id !== $user->id) {
             return response()->json([
                 'message' => 'You are not authorized to upload to this session'
             ], 403);
         }
-        
+
         // ۳. اعتبارسنجی داده‌ها
         $validatedData = $request->validated();
         $validatedData['user_id'] = $user->id;
         $validatedData['chat_session_id'] = $session->id;
-        
+
         // ۴. دریافت فایل‌ها
         $files = $request->file('files');
-        
+
         if (empty($files)) {
             return response()->json([
                 'message' => 'No files uploaded'
             ], 400);
         }
-        
+
         $uploadedDocuments = [];
         $documentIds = [];
         $pdfParser = new Parser();
-        
+
         // ۵. پردازش هر فایل
         foreach ($files as $attachment) {
             // ذخیره فایل
             $path = $attachment->store('documents/' . $session->id, 'public');
             $fullPath = storage_path('app/public/' . $path);
-            
+
             // شمارش صفحات
             try {
                 $pdf = $pdfParser->parseFile($fullPath);
@@ -178,7 +190,7 @@ class DocumentController extends Controller
                 $pageCount = 0;
                 Log::warning("Failed to parse PDF: " . $e->getMessage());
             }
-            
+
             // ایجاد رکورد در دیتابیس
             $documentData = $validatedData;
             $documentData['file_path'] = $path;
@@ -191,12 +203,12 @@ class DocumentController extends Controller
             $uploadedDocuments[] = $document;
             $documentIds[] = $document->id;
         }
-        
+
         // ۶. ارسال Job برای پردازش
         if (!empty($documentIds)) {
             DocumentProcessJob::dispatch($user, $session, $documentIds);
         }
-        
+
         return response()->json([
             'message' => 'Documents uploaded successfully',
             'documents' => $uploadedDocuments,
@@ -211,7 +223,7 @@ class DocumentController extends Controller
     public function search(ChatSession $session, QuestionCreateRequest $request)
     {
         $user = Auth::user();
-        
+
         if (!$user) {
             return response()->json([
                 'message' => 'Unauthenticated'
@@ -231,8 +243,12 @@ class DocumentController extends Controller
 
         $question = Question::create($validated_data);
 
+        // Cap at 10 documents per question: the agent searches each one, so an
+        // unbounded list makes a single question arbitrarily slow.
         $documentIds = Document::where('chat_session_id', $session->id)
             ->where('processing_status', 'completed')
+            ->orderBy('id')
+            ->limit(10)
             ->pluck('id')
             ->toArray();
 
@@ -266,7 +282,7 @@ class DocumentController extends Controller
     public function getResult(Request $request, $questionId)
     {
         $user = Auth::user();
-        
+
         if (!$user) {
             return response()->json([
                 'message' => 'Unauthenticated'
@@ -275,7 +291,7 @@ class DocumentController extends Controller
 
         $question = Question::where('id', $questionId)
             ->where('user_id', $user->id)
-            ->with('latestAnswer')  // ← این مهم است
+            ->with('latestAnswer')
             ->first();
 
         if (!$question) {
@@ -284,15 +300,17 @@ class DocumentController extends Controller
             ], 404);
         }
 
-        $answer = $question->latestAnswer;  // ← دریافت از جدول answers
+        $answer = $question->latestAnswer;
 
+        // FIX: the job saves the text in `content`; this used to read `answer`.
         return response()->json([
             'question' => $question->content,
-            'answer' => $answer->answer ?? 'پاسخی یافت نشد',  // ← از answers
+            'answer' => $answer?->content ?? $answer?->answer ?? 'پاسخی یافت نشد',
             'status' => $question->status,
             'sources' => $answer->sources ?? null,
             'sub_queries' => $answer->sub_queries ?? null,
             'search_plans' => $answer->search_plans ?? null,
+            'warnings' => data_get($answer?->search_plans, 'warnings', []),
             'num_searches' => $answer->num_searches ?? 0,
             'created_at' => $question->created_at,
             'answered_at' => $answer->answered_at ?? null,
@@ -304,9 +322,9 @@ class DocumentController extends Controller
      * دریافت وضعیت سوال
      */
     public function getStatus($questionId)
-    {   
+    {
         $user = Auth::user();
-        
+
         if (!$user) {
             return response()->json([
                 'message' => 'Unauthenticated'
@@ -328,59 +346,14 @@ class DocumentController extends Controller
         ]);
     }
 
-    /**
-     * Webhook برای دریافت نتیجه پردازش از Python
-     */
-    public function webhook(Request $request)
-    {
-        Log::info('📨 Webhook received', $request->all());
-        
-        $validated = $request->validate([
-            'document_id' => 'required|exists:documents,id',
-            'status' => 'required|in:success,failed',
-            'pages' => 'nullable|integer',
-            'chunks' => 'nullable|integer',
-            'entities' => 'nullable|integer',
-            'figures' => 'nullable|integer',
-            'tables' => 'nullable|integer',
-            'qdrant_points' => 'nullable|integer',
-            'file_size' => 'nullable|integer'
-        ]);
+    // NOTE: the old webhook() method that lived here was a duplicate of
+    // WebhookController::handle() and had no route. It was removed so there is a
+    // single, authenticated place that handles Python callbacks.
 
-        $document = Document::find($validated['document_id']);
-
-        if ($validated['status'] === 'success') {
-            $document->update([
-                'processing_status' => 'completed',
-                'page_count' => $validated['pages'] ?? $document->page_count,
-                'processed_at' => now(),
-                'metadata' => array_merge($document->metadata ?? [], [
-                    'chunks' => $validated['chunks'] ?? 0,
-                    'entities' => $validated['entities'] ?? 0,
-                    'figures' => $validated['figures'] ?? 0,
-                    'tables' => $validated['tables'] ?? 0,
-                    'qdrant_points' => $validated['qdrant_points'] ?? 0,
-                ])
-            ]);
-
-            Log::info("✅ Document {$document->id} processed successfully via webhook");
-        } else {
-            $document->update([
-                'processing_status' => 'failed',
-                'processing_error' => 'Webhook reported failure'
-            ]);
-
-            Log::error("❌ Document {$document->id} processing failed via webhook");
-        }
-
-        return response()->json(['message' => 'Webhook received'], 200);
-    }
-
-
-    public function delete(Document $document)
+    public function delete(Document $document, GraphRagClient $rag)
     {
         $user = Auth::user();
-        
+
         if (!$user) {
             return response()->json([
                 'message' => 'Unauthenticated'
@@ -388,11 +361,30 @@ class DocumentController extends Controller
         }
 
         $session = ChatSession::find($document->chat_session_id);
-        
+
         if (!$session || $session->user_id !== $user->id) {
             return response()->json([
                 'message' => 'You do not have permission to delete this document'
             ], 403);
+        }
+
+        // Remove the document's vectors, graph data and figure images from the Python
+        // service FIRST. If that fails we keep the database row so the user can retry,
+        // instead of orphaning data that nothing could ever delete again.
+        try {
+            $rag->deleteDocument((int) $document->id, (string) $user->id);
+        } catch (GraphRagException $e) {
+            Log::error("Python delete failed for document {$document->id}", ['error' => $e->getMessage()]);
+
+            if ($e->getCode() === 409) {
+                return response()->json([
+                    'message' => 'This document is still being processed. Try again when it has finished.'
+                ], 409);
+            }
+
+            return response()->json([
+                'message' => 'Could not remove the document data right now. Please try again.'
+            ], 503);
         }
 
         $filePath = storage_path('app/public/' . $document->file_path);
