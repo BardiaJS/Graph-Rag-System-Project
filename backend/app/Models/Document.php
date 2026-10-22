@@ -8,6 +8,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Document extends Model
 {
+    protected function casts(): array
+    {
+        return [
+            'metadata' => 'array',
+            'processed_at' => 'datetime',
+        ];
+    }
+
     protected $fillable = [
         'user_id',
         'chat_session_id',
