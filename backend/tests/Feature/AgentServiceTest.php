@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Feature\GraphRag;
+namespace Tests\Feature;
 
 use App\Services\AgentService;
 use App\Services\GraphRagClient;
@@ -273,5 +273,119 @@ class AgentServiceTest extends TestCase
             && $request['messages'][0]['role'] === 'system'
             && str_contains($request['messages'][0]['content'], 'Answer ONLY in Persian')
             && str_contains($request['messages'][0]['content'], 'Chinese'));
+    }
+
+    public function test_an_answer_without_citations_is_repaired_once(): void
+    {
+        $noCitations = [
+            'answer' => 'The paper proposes a new method.',
+            'cited_sids' => [], 'unverified_figures' => [],
+            'warnings' => ['Answer contains no verifiable citations.'],
+        ];
+        $withCitations = [
+            'answer' => 'The paper proposes a new method [S1].',
+            'cited_sids' => ['S1'], 'unverified_figures' => [], 'warnings' => [],
+        ];
+
+        Http::fake([
+            'rag.test/retrieve' => Http::response(['evidence' => [
+                $this->evidence(7, 1, 'We propose a new method for similarity analysis.', 0.9),
+            ]]),
+            'rag.test/verify' => Http::sequence()->push($noCitations)->push($withCitations),
+            'ollama.test/api/chat' => Http::sequence()
+                ->push($this->chat('{"sub_questions":[{"q":"contribution","document_ids":[7]}]}'))
+                ->push($this->chat('{"sufficient":true}'))
+                ->push($this->chat('The paper proposes a new method.'))          // forgot the citations
+                ->push($this->chat('The paper proposes a new method [S1].')),     // repaired
+        ]);
+
+        $result = app(AgentService::class)->answer('What is the contribution of this paper?', [7]);
+
+        $this->assertSame('The paper proposes a new method [S1].', $result['answer']);
+        $this->assertSame([], $result['warnings']);
+        $this->assertCount(1, $result['citations']);
+        $this->assertContains('repair', array_column($result['trace'], 'step'));
+
+        // The repair request replays the conversation, then asks for citations.
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/api/chat')
+            && count($request['messages']) === 4
+            && $request['messages'][2]['role'] === 'assistant'
+            && str_contains($request['messages'][3]['content'], 'no source citations'));
+    }
+
+    public function test_when_repair_also_fails_the_original_warning_is_kept(): void
+    {
+        $noCitations = [
+            'answer' => 'No markers here.',
+            'cited_sids' => [], 'unverified_figures' => [],
+            'warnings' => ['Answer contains no verifiable citations.'],
+        ];
+
+        Http::fake([
+            'rag.test/retrieve' => Http::response(['evidence' => [
+                $this->evidence(7, 1, 'Some passage.', 0.9),
+            ]]),
+            'rag.test/verify' => Http::response($noCitations),
+            'ollama.test/api/chat' => Http::sequence()
+                ->push($this->chat('{"sub_questions":[{"q":"x","document_ids":[7]}]}'))
+                ->push($this->chat('{"sufficient":true}'))
+                ->push($this->chat('No markers here.'))
+                ->push($this->chat('Still no markers.')),
+        ]);
+
+        $result = app(AgentService::class)->answer('Question?', [7]);
+
+        $this->assertSame('No markers here.', $result['answer']);
+        $this->assertSame([], $result['citations']);
+        $this->assertContains('Answer contains no verifiable citations.', $result['warnings']);
+    }
+
+    public function test_the_prompt_explains_that_this_paper_means_the_sources(): void
+    {
+        Http::fake([
+            'rag.test/retrieve' => Http::response(['evidence' => [
+                $this->evidence(7, 1, 'Some passage.', 0.9),
+            ]]),
+            'rag.test/verify' => Http::response([
+                'answer' => 'A [S1].', 'cited_sids' => ['S1'], 'unverified_figures' => [], 'warnings' => [],
+            ]),
+            'ollama.test/api/chat' => Http::sequence()
+                ->push($this->chat('{"sub_questions":[{"q":"x","document_ids":[7]}]}'))
+                ->push($this->chat('{"sufficient":true}'))
+                ->push($this->chat('A [S1].')),
+        ]);
+
+        app(AgentService::class)->answer('What is the main contribution of this paper?', [7]);
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/api/chat')
+            && ($request['messages'][0]['role'] ?? '') === 'system'
+            && str_contains($request['messages'][0]['content'], 'never claim that no paper'));
+    }
+
+    public function test_planner_and_grader_prompts_keep_the_loop_on_topic(): void
+    {
+        Http::fake([
+            'rag.test/retrieve' => Http::sequence()
+                ->push(['evidence' => [$this->evidence(7, 1, 'First passage.', 0.9)]])
+                ->push(['evidence' => [$this->evidence(8, 2, 'Second passage.', 0.8)]]),
+            'rag.test/verify' => Http::response([
+                'answer' => 'A [S1].', 'cited_sids' => ['S1'], 'unverified_figures' => [], 'warnings' => [],
+            ]),
+            'ollama.test/api/chat' => Http::sequence()
+                ->push($this->chat('{"sub_questions":[{"q":"topic","document_ids":[7,8]}]}'))
+                ->push($this->chat('{"sufficient":false,"missing":[{"q":"topic detail","document_ids":[7,8]}]}'))
+                ->push($this->chat('{"sufficient":true}'))
+                ->push($this->chat('A [S1].')),
+        ]);
+
+        app(AgentService::class)->answer('Tell me about the topic', [7, 8]);
+
+        // The planner is told it only knows ids, and must not silently drop documents.
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/api/chat')
+            && str_contains($request['messages'][0]['content'], 'ALL available document ids'));
+
+        // The grader is told to stay on the original question.
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/api/chat')
+            && str_contains($request['messages'][0]['content'], 'about the ORIGINAL question'));
     }
 }

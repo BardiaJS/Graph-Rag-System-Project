@@ -44,16 +44,16 @@ class AgenticAnswerJob implements ShouldQueue
         $isPersian = (bool) preg_match('/[\x{0600}-\x{06FF}]/u', $this->question->content);
 
         if ($isPersian) {
-            $ollamaModel = 'gemma3:4b';   // چندزبانه، فارسی خوب
+            $ollamaModel = (string) config('graphrag.models.persian', 'gemma3:4b');   // چندزبانه، فارسی خوب
             $answerLanguage = 'Persian (فارسی)';
             $extraInstructions = 'DO NOT use Chinese characters (汉字). '
                 . "DO NOT use English except for names like 'Rasmus Lerdorf' and code like 'array'.";
-            Log::info('AgenticAnswerJob: Persian detected, using gemma3:4b');
+            Log::info('AgenticAnswerJob: Persian detected', ['model' => $ollamaModel]);
         } else {
-            $ollamaModel = 'llama3.2';
+            $ollamaModel = (string) config('graphrag.models.english', 'llama3.2');
             $answerLanguage = 'English';
             $extraInstructions = null;
-            Log::info('AgenticAnswerJob: English detected, using llama3.2');
+            Log::info('AgenticAnswerJob: English detected', ['model' => $ollamaModel]);
         }
 
         try {

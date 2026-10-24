@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Services\GraphRagClient;
 use InvalidArgumentException;
 
 /**
@@ -30,10 +29,13 @@ class AgentService
     private const PLAN_PROMPT = <<<'TXT'
 You plan retrieval for a research assistant.
 Available document ids: {ids}
+You know only these ids, not what the documents contain.
 
 Break the user's question into at most {max} short, self-contained
 search queries. If the question compares or spans documents, create one query per
-relevant document. If it is simple, return a single query. Write queries so they make
+relevant document. If it is simple, return a single query. Unless the question clearly
+names or compares specific documents, set document_ids to ALL available document ids:
+never guess that only some documents are relevant. Write queries so they make
 sense on their own: if the question refers to the earlier conversation ("it", "the
 second one"), replace the reference with what it means.
 
@@ -52,9 +54,11 @@ Available document ids: {ids}
 Passages:
 {passages}
 
-If the passages contain what is needed (for every document the question concerns),
-answer sufficient=true. Otherwise list up to 3 NEW, differently-worded search queries
-that target what is missing.
+Be conservative: answer sufficient=true whenever the passages contain a plausible answer
+(for every document the question concerns). Only if something clearly needed is missing,
+list up to 3 NEW, differently-worded search queries for that missing part of the ORIGINAL
+question. Every follow-up must be about the ORIGINAL question above: never ask about other
+topics, even if the passages mention them.
 
 Return JSON only:
 {"sufficient": true, "missing": [{"q": "<query>", "document_ids": [<ids>]}]}
@@ -66,7 +70,10 @@ TXT;
         . 'document each statement comes from. (4) Mention a figure only if it is listed under '
         . '"Linked figures" of a source or named in that source\'s text, and cite that source; '
         . 'never invent figure numbers, tables or pages. (5) If the sources do not contain the '
-        . 'answer, say so plainly instead of guessing. ';
+        . 'answer, say so plainly instead of guessing. '
+        . '(6) The sources are excerpts of documents the user uploaded: when the question says '
+        . '"this paper", "this document" or "the document", it means the document the sources '
+        . 'come from, so never claim that no paper or document was provided. ';
 
     public function __construct(
         private GraphRagClient $rag,
@@ -126,8 +133,23 @@ TXT;
             $evidence[$index]['sid'] = 'S' . ($index + 1);
         }
 
-        $raw = $this->synthesize($question, $evidence, $options);
-        $check = $this->rag->verify($raw, $this->toSources($evidence));
+        $sources = $this->toSources($evidence);
+        $messages = $this->synthMessages($question, $evidence, $options);
+        $raw = trim($this->llm->chat($messages, false, 0.1, $this->model($options)));
+        $check = $this->rag->verify($raw, $sources);
+
+        // Small local models often write a fluent answer and forget the [S#] markers.
+        // One repair pass (only when nothing at all is cited) fixes most of those cases.
+        if (count($check['cited_sids']) === 0) {
+            $repaired = $this->repair($messages, $raw, $options);
+            if ($repaired !== null) {
+                $second = $this->rag->verify($repaired, $sources);
+                $trace[] = ['step' => 'repair', 'cited' => count($second['cited_sids'])];
+                if (count($second['cited_sids']) > 0) {
+                    $check = $second;
+                }
+            }
+        }
 
         $cited = array_flip($check['cited_sids']);
         $citations = [];
@@ -389,8 +411,8 @@ TXT;
         $language = $options['answer_language'] ?? null;
 
         $rule = is_string($language) && $language !== ''
-            ? '(6) Answer ONLY in ' . $language . '.'
-            : '(6) Answer in the same language as the question.';
+            ? '(7) Answer ONLY in ' . $language . '.'
+            : '(7) Answer in the same language as the question.';
 
         $extra = $options['extra_instructions'] ?? null;
         if (is_string($extra) && $extra !== '') {
@@ -400,16 +422,41 @@ TXT;
         return self::SYNTH_RULES . $rule;
     }
 
-    private function synthesize(string $question, array $evidence, array $options): string
+    /** @return array<int, array{role: string, content: string}> */
+    private function synthMessages(string $question, array $evidence, array $options): array
     {
         $sources = implode("\n\n", array_map(fn ($e) => $this->formatSource($e), $evidence));
         $user = $this->historyText($options)
-            . "Sources:\n\n" . $sources . "\n\nQuestion: " . $question . "\n\nAnswer:";
+            . "Sources:\n\n" . $sources
+            . "\n\nQuestion: " . $question
+            . "\n\nReminder: put the source id of the supporting source after every claim, like [S1]."
+            . "\n\nAnswer:";
 
-        return trim($this->llm->chat([
+        return [
             ['role' => 'system', 'content' => $this->systemPrompt($options)],
             ['role' => 'user', 'content' => $user],
-        ], false, 0.1, $this->model($options)));
+        ];
+    }
+
+    /**
+     * Ask the model once to redo an answer that cited nothing.
+     * Returns null if the model cannot be reached (the original answer is then kept).
+     */
+    private function repair(array $messages, string $raw, array $options): ?string
+    {
+        $messages[] = ['role' => 'assistant', 'content' => $raw];
+        $messages[] = [
+            'role' => 'user',
+            'content' => 'Your answer contains no source citations. Rewrite it using only the sources above, '
+                . 'putting the source id of the supporting source after every claim, like [S1]. '
+                . 'If the sources do not answer the question, say so in one sentence.',
+        ];
+
+        try {
+            return trim($this->llm->chat($messages, false, 0.1, $this->model($options)));
+        } catch (GraphRagException $e) {
+            return null;
+        }
     }
 
     private function formatSource(array $e): string

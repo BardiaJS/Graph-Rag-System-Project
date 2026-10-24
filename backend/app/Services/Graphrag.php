@@ -31,13 +31,22 @@ return [
     ],
 
     /*
+    | Model per answer language. Small models (3B) often ignore the citation format;
+    | try e.g. GRAPH_RAG_MODEL_EN=qwen2.5:7b (no .php change needed).
+    */
+    'models' => [
+        'english' => env('GRAPH_RAG_MODEL_EN', 'llama3.2'),
+        'persian' => env('GRAPH_RAG_MODEL_FA', 'gemma3:4b'),
+    ],
+
+    /*
     |--------------------------------------------------------------------------
     | Agent loop limits
     |--------------------------------------------------------------------------
     */
     'agent' => [
         'max_subquestions' => (int) env('GRAPH_RAG_MAX_SUBQUESTIONS', 4),
-        'max_iterations' => (int) env('GRAPH_RAG_MAX_ITERATIONS', 3),
+        'max_iterations' => (int) env('GRAPH_RAG_MAX_ITERATIONS', 2),
         'evidence_per_doc' => (int) env('GRAPH_RAG_EVIDENCE_PER_DOC', 6),
         'grade_snippet_chars' => 500,
         'history_answer_chars' => 300,
