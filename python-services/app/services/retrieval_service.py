@@ -12,14 +12,35 @@ outside them, including the entity hop.
 """
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-HITS_PER_QUERY = int(os.getenv("RETRIEVAL_HITS_PER_QUERY", os.getenv("AGENT_HITS_PER_QUERY", 4)))
+HITS_PER_QUERY = int(os.getenv("RETRIEVAL_HITS_PER_QUERY", os.getenv("AGENT_HITS_PER_QUERY", 6)))
 EVIDENCE_PER_DOC = int(os.getenv("RETRIEVAL_EVIDENCE_PER_DOC", os.getenv("AGENT_EVIDENCE_PER_DOC", 6)))
 MAX_QUERIES_PER_CALL = int(os.getenv("RETRIEVAL_MAX_QUERIES", 6))
+# Reference lists look "similar" to almost any question (names, titles, years) and crowd
+# out real content. Their score is multiplied by this unless the user asks about references.
+BIBLIOGRAPHY_PENALTY = float(os.getenv("RETRIEVAL_BIBLIOGRAPHY_PENALTY", 0.5))
+# Drop demoted chunks entirely once a document has at least this many real ones.
+MIN_REAL_EVIDENCE = int(os.getenv("RETRIEVAL_MIN_REAL_EVIDENCE", 3))
+
+_BIB_HEADINGS = ("reference", "bibliograph", "works cited", "منابع", "مراجع", "کتابنامه")
+_BIB_LINE = re.compile(r"^\s*(?:[-*\u2022]\s*)?\[\d{1,3}\]\s", re.MULTILINE)
+_ASKS_ABOUT_REFS = re.compile(r"referenc|citation|cited|bibliograph|منبع|منابع|مرجع|مراجع|ارجاع", re.IGNORECASE)
+
+
+def is_bibliography(headings: Optional[List[str]], text: Optional[str]) -> bool:
+    """True for a reference-list chunk. Checks the section title and, because neighbour
+    chunks carry no headings, also the text: most lines look like "[12] Author, ..."."""
+    last = (headings[-1] if headings else "") or ""
+    last = re.sub(r"^[\d.\s]+", "", last.lower())
+    if any(last.startswith(k) for k in _BIB_HEADINGS):
+        return True
+    lines = [ln for ln in (text or "").splitlines() if ln.strip()]
+    return len(lines) >= 2 and len(_BIB_LINE.findall(text or "")) / len(lines) >= 0.6
 
 
 @dataclass
@@ -33,6 +54,7 @@ class Evidence:
     via: List[str] = field(default_factory=list)       # shared entities, if graph-linked
     figures: List[dict] = field(default_factory=list)  # figures linked to this chunk
     sid: str = ""  # source id such as "S3": assigned by the caller, never by this module
+    demoted: bool = False  # reference-list chunk whose score was penalised (not serialised)
 
     @property
     def key(self) -> str:
@@ -99,6 +121,7 @@ def collect(
 
     new_chunks = 0
     for sub in subs:
+        wants_refs = bool(_ASKS_ABOUT_REFS.search(sub.q))
         direct_keys: List[str] = []
         for doc_id in sub.document_ids:
             hits = search_with_graph(
@@ -110,9 +133,16 @@ def collect(
                 if idx is None:
                     continue
                 key = (doc_id, idx)
-                if h.get("source") != "graph":  # real vector hit, not a neighbour
-                    direct_keys.append(chunk_key(doc_id, idx))
                 score = float(h.get("score") or 0.0)
+                bibliography = not wants_refs and is_bibliography(
+                    h.get("headings"), h.get("text")
+                )
+                if bibliography:
+                    score *= BIBLIOGRAPHY_PENALTY
+                # real vector hit (not a neighbour); reference lists never seed the
+                # entity hop, since author names would link unrelated chunks
+                if h.get("source") != "graph" and not bibliography:
+                    direct_keys.append(chunk_key(doc_id, idx))
                 if key in store:
                     store[key].score = max(store[key].score, score)
                     continue
@@ -123,6 +153,7 @@ def collect(
                     headings=h.get("headings") or [],
                     text=h.get("text") or "",
                     score=score,
+                    demoted=bibliography,
                 )
                 added += 1
             new_chunks += added
@@ -175,6 +206,10 @@ def select_evidence(store: Dict[Tuple[int, int], Evidence]) -> List[Evidence]:
 
     chosen: List[Evidence] = []
     for items in by_doc.values():
+        # Reference lists only fill the context when there is almost nothing else.
+        real = [e for e in items if not e.demoted]
+        if len(real) >= MIN_REAL_EVIDENCE:
+            items = real
         items.sort(key=lambda e: e.score, reverse=True)
         chosen.extend(items[:EVIDENCE_PER_DOC])
 

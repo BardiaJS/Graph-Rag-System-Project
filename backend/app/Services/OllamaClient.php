@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Services\GraphRagException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
