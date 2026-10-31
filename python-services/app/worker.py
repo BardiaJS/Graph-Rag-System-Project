@@ -38,6 +38,16 @@ def preload() -> None:
     DoclingService._get_tokenizer()
     logger.info("Models preloaded")
 
+    # Catch a missing/mistyped Ollama model now, not 150 failed calls into the first upload.
+    if os.getenv("ENABLE_ENTITY_EXTRACTION", "1") == "1":
+        from app.services import llm_service
+
+        problem = llm_service.check_model()
+        if problem:
+            logger.warning(f"ENTITY EXTRACTION WILL FAIL: {problem}")
+        else:
+            logger.info(f"Ollama model '{llm_service.OLLAMA_MODEL}' is available")
+
 
 if __name__ == "__main__":
     logging.basicConfig(

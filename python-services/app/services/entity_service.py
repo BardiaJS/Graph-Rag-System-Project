@@ -21,6 +21,8 @@ RELATION_TYPES = {"USES", "EXTENDS", "COMPARES_TO", "EVALUATES_ON", "MEASURED_BY
 MIN_CHUNK_CHARS = int(os.getenv("ENTITY_MIN_CHUNK_CHARS", 150))
 MAX_CHUNK_CHARS = 2000
 MAX_ENTITIES_PER_CHUNK = 8
+# Stop (and report) after this many model failures in a row instead of grinding through every chunk.
+MAX_CONSECUTIVE_LLM_FAILURES = int(os.getenv("ENTITY_MAX_LLM_FAILURES", 3))
 MAX_RELATIONS_PER_CHUNK = 6
 
 
@@ -95,6 +97,7 @@ def extract_from_chunk(text: str) -> Tuple[List[dict], List[dict]]:
         [{"role": "user", "content": PROMPT.format(
             text=text, max_e=MAX_ENTITIES_PER_CHUNK, max_r=MAX_RELATIONS_PER_CHUNK)}],
         default={},
+        strict=True,  # a dead model must raise, not look like "no entities found"
     )
     return _parse(raw, text)
 
@@ -110,11 +113,24 @@ def extract_and_store_entities(
     mention_rows: List[dict] = []
     relation_rows: List[dict] = []
 
+    consecutive_failures = 0
     for idx, chunk in enumerate(chunks):
         if on_progress and idx % 5 == 0:
             on_progress(idx, len(chunks))
+        if len((chunk.get("text") or "")[:MAX_CHUNK_CHARS]) < MIN_CHUNK_CHARS:
+            continue  # too short to hold entities; no model call, so it can't count as a failure
         try:
             entities, relations = extract_from_chunk(chunk.get("text", ""))
+            consecutive_failures = 0
+        except llm_service.LLMError as e:
+            consecutive_failures += 1
+            logger.warning(f"Entity extraction: model call failed for chunk {idx}: {e}")
+            if consecutive_failures >= MAX_CONSECUTIVE_LLM_FAILURES:
+                raise llm_service.LLMError(
+                    f"Language model unavailable: entity extraction stopped after "
+                    f"{consecutive_failures} consecutive failures ({e})"
+                ) from e
+            continue
         except Exception as e:
             logger.warning(f"Entity extraction failed for chunk {idx}: {e}")
             continue
