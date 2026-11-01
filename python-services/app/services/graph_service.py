@@ -389,3 +389,24 @@ def get_document(document_id: int) -> Optional[dict]:
             id=int(document_id),
         ).data()
     return rows[0] if rows else None
+
+
+def get_chunk_texts(document_id: int) -> List[dict]:
+    """A document's chunks in reading order (index == position), as the entity job needs them."""
+    with get_driver().session() as session:
+        return session.run(
+            """
+            MATCH (c:Chunk {document_id: $id})
+            RETURN c.chunk_index AS idx, c.text AS text, c.headings AS headings, c.page AS page
+            ORDER BY c.chunk_index
+            """,
+            id=int(document_id),
+        ).data()
+
+
+def document_exists(document_id: int) -> bool:
+    with get_driver().session() as session:
+        row = session.run(
+            "MATCH (d:Document {id: $id}) RETURN count(d) AS n", id=int(document_id)
+        ).single()
+    return bool(row and row["n"])

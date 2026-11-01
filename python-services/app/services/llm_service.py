@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+# Keep this EQUAL to Laravel's OLLAMA_NUM_CTX: Ollama reloads a model whenever the context
+# size changes between calls, so two callers with different values keep evicting each other.
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", 8192))
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "10m")
 
 
 class LLMError(RuntimeError):
@@ -34,12 +38,19 @@ def chat(
     json_mode: bool = False,
     temperature: float = 0.1,
     timeout: int = 180,
+    model: Optional[str] = None,
+    max_tokens: Optional[int] = None,
 ) -> str:
+    options: Dict[str, Any] = {"temperature": temperature, "num_ctx": OLLAMA_NUM_CTX}
+    if max_tokens:
+        options["num_predict"] = int(max_tokens)  # stops a chatty model rambling past the JSON
+
     payload: Dict[str, Any] = {
-        "model": OLLAMA_MODEL,
+        "model": model or OLLAMA_MODEL,
         "messages": messages,
         "stream": False,
-        "options": {"temperature": temperature},
+        "keep_alive": OLLAMA_KEEP_ALIVE,
+        "options": options,
     }
     if json_mode:
         payload["format"] = "json"
@@ -53,6 +64,9 @@ def chat_json(
     messages: List[Dict[str, str]],
     default: Optional[Dict[str, Any]] = None,
     strict: bool = False,
+    model: Optional[str] = None,
+    max_tokens: Optional[int] = None,
+    timeout: int = 180,
 ) -> Dict[str, Any]:
     """Ask for JSON.
 
@@ -61,7 +75,7 @@ def chat_json(
     "the model is down" from "the model found nothing"). Unparseable output is still
     returned as `default` in both modes."""
     try:
-        raw = chat(messages, json_mode=True)
+        raw = chat(messages, json_mode=True, timeout=timeout, model=model, max_tokens=max_tokens)
     except Exception as e:
         if strict:
             raise LLMError(_describe(e)) from e

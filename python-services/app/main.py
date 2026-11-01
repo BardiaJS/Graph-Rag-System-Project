@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from rq.exceptions import NoSuchJobError
 from rq.job import Job
 
-from app.jobs import on_failure, on_success, process_document_job
+from app.jobs import enqueue_entities, on_failure, on_success, process_document_job
 from app.services.debug_service import print_search_results
 from app.services.embedding_service import search, search_with_graph
 from app.services.figure_service import figure_path
@@ -30,7 +30,15 @@ from app.services.retrieval_service import retrieve
 from app.services.verify_service import verify_answer
 from app.services.document_service import count_qdrant_points, delete_document, qdrant_owner
 from app.services.graph_service import get_document, get_figures, list_documents
-from app.task_queue import FAILURE_TTL, JOB_TIMEOUT, RESULT_TTL, queue, redis_conn
+from app.task_queue import (
+    FAILURE_TTL,
+    JOB_TIMEOUT,
+    RESULT_TTL,
+    entity_cancel_key,
+    entity_job_key,
+    queue,
+    redis_conn,
+)
 
 # ============================================================
 # Config / logging
@@ -124,6 +132,42 @@ def _fetch_job(job_id: str) -> Optional[Job]:
         return Job.fetch(job_id, connection=redis_conn)
     except NoSuchJobError:
         return None
+
+
+def _entity_job_status(document_id: int) -> Optional[dict]:
+    """State of the document's most recent entity-extraction job (None if never queued)."""
+    raw = redis_conn.get(entity_job_key(document_id))
+    if not raw:
+        return None
+    job_id = raw.decode() if isinstance(raw, bytes) else str(raw)
+
+    job = _fetch_job(job_id)
+    if job is None:
+        return {"job_id": job_id, "status": "expired"}
+
+    status = {
+        "job_id": job_id,
+        "status": _status_str(job),
+        "progress": job.meta.get("progress"),
+        "total": job.meta.get("total"),
+    }
+    if status["status"] == "failed":
+        lines = (job.exc_info or "").strip().splitlines()
+        status["error"] = lines[-1] if lines else "Entity extraction failed"
+    return status
+
+
+def _stop_entity_work(document_id: int) -> None:
+    """Make any queued or running entity job for this document stand down."""
+    redis_conn.set(entity_cancel_key(document_id), "1", ex=3600)  # a running job polls this
+    raw = redis_conn.get(entity_job_key(document_id))
+    if raw:
+        job = _fetch_job(raw.decode() if isinstance(raw, bytes) else str(raw))
+        if job is not None and _status_str(job) in ACTIVE_STATUSES - {"started"}:
+            try:
+                job.delete(remove_from_queue=True)  # still waiting: just drop it
+            except Exception as e:
+                logger.warning(f"Could not remove entity job for document {document_id}: {e}")
 
 
 # ============================================================
@@ -268,7 +312,39 @@ def document_detail(document_id: int, user_id: Optional[str] = None):
     doc["job"] = (
         {"status": _status_str(job), "stage": job.meta.get("stage")} if job else None
     )
+    # Entities are extracted afterwards by a separate, slower job: the document is already
+    # searchable while this is still running.
+    doc["entity_job"] = _entity_job_status(document_id)
     return {"status": "success", "document": doc}
+
+
+@app.post(
+    "/documents/{document_id}/entities",
+    status_code=202,
+    dependencies=[Depends(require_api_key)],
+)
+def requeue_entities(document_id: int, user_id: Optional[str] = None):
+    """Queue entity extraction for a document that is already ingested, without
+    re-processing the PDF. For documents uploaded before entities existed, and to retry
+    after a failed run (e.g. the language model was down)."""
+    doc = _check_owner(document_id, user_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    main_job = _fetch_job(job_id_for(document_id))
+    if main_job is not None and _status_str(main_job) in ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="Document is still being ingested")
+
+    current = _entity_job_status(document_id)
+    if current and current["status"] in ACTIVE_STATUSES:
+        return {"status": "queued", "deduplicated": True, **current}  # already queued/running
+
+    try:
+        queued = enqueue_entities(document_id)
+    except Exception as e:
+        logger.exception("Could not queue entity extraction")
+        raise HTTPException(status_code=503, detail=f"Queue unavailable: {e}")
+    return {**queued}
 
 
 @app.delete("/documents/{document_id}", dependencies=[Depends(require_api_key)])
@@ -290,6 +366,9 @@ def document_delete(document_id: int, user_id: Optional[str] = None):
             job.delete(remove_from_queue=True)
         except Exception as e:
             logger.warning(f"Could not remove job record for document {document_id}: {e}")
+
+    # Entity extraction is not a reason to refuse: it is told to stop and discards its output.
+    _stop_entity_work(document_id)
 
     result = delete_document(document_id)
     if not result["complete"]:

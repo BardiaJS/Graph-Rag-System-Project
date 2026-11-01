@@ -11,7 +11,8 @@ import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from app.services import llm_service
-from app.services.graph_service import chunk_key, ensure_schema, get_driver
+from app.services.graph_service import chunk_key, document_exists, ensure_schema, get_driver
+from app.services.retrieval_service import is_bibliography
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,11 @@ MAX_ENTITIES_PER_CHUNK = 8
 # Stop (and report) after this many model failures in a row instead of grinding through every chunk.
 MAX_CONSECUTIVE_LLM_FAILURES = int(os.getenv("ENTITY_MAX_LLM_FAILURES", 3))
 MAX_RELATIONS_PER_CHUNK = 6
+
+# Entity calls can use a smaller/faster model than answering (e.g. ENTITY_MODEL=qwen2.5:3b).
+ENTITY_MODEL = os.getenv("ENTITY_MODEL") or None
+ENTITY_LLM_TIMEOUT = int(os.getenv("ENTITY_LLM_TIMEOUT", 300))  # a slow chunk should not fail at 180s
+ENTITY_MAX_TOKENS = int(os.getenv("ENTITY_MAX_TOKENS", 512))    # the JSON answer is short
 
 
 def normalize(name: str) -> str:
@@ -98,6 +104,9 @@ def extract_from_chunk(text: str) -> Tuple[List[dict], List[dict]]:
             text=text, max_e=MAX_ENTITIES_PER_CHUNK, max_r=MAX_RELATIONS_PER_CHUNK)}],
         default={},
         strict=True,  # a dead model must raise, not look like "no entities found"
+        model=ENTITY_MODEL,
+        max_tokens=ENTITY_MAX_TOKENS,
+        timeout=ENTITY_LLM_TIMEOUT,
     )
     return _parse(raw, text)
 
@@ -106,19 +115,28 @@ def extract_and_store_entities(
     document_id: int,
     chunks: List[dict],
     on_progress: Optional[Callable[[int, int], None]] = None,
-) -> Dict[str, int]:
+    should_stop: Optional[Callable[[], bool]] = None,
+) -> Dict[str, Any]:
     """Extract from every chunk, then write everything in two batched queries.
-    One chunk failing never aborts the document."""
+    One chunk failing never aborts the document.
+
+    should_stop: polled before every chunk; when it returns True the run ends at once and
+    NOTHING is written (used when the document is deleted or re-processed meanwhile)."""
     document_id = int(document_id)
     mention_rows: List[dict] = []
     relation_rows: List[dict] = []
 
     consecutive_failures = 0
     for idx, chunk in enumerate(chunks):
+        if should_stop and should_stop():
+            logger.info(f"Entity extraction for document {document_id} cancelled at chunk {idx}")
+            return {"mentions": 0, "relations": 0, "entities": 0, "cancelled": True}
         if on_progress and idx % 5 == 0:
             on_progress(idx, len(chunks))
         if len((chunk.get("text") or "")[:MAX_CHUNK_CHARS]) < MIN_CHUNK_CHARS:
             continue  # too short to hold entities; no model call, so it can't count as a failure
+        if is_bibliography(chunk.get("headings"), chunk.get("text")):
+            continue  # reference lists: author-name noise, and a slow call that adds nothing
         try:
             entities, relations = extract_from_chunk(chunk.get("text", ""))
             consecutive_failures = 0
@@ -142,6 +160,13 @@ def extract_and_store_entities(
 
         if (idx + 1) % 20 == 0:
             logger.info(f"Entity extraction: {idx + 1}/{len(chunks)} chunks")
+
+    # The document may have been deleted while this (slow) run was going: writing now would
+    # leave entities that nothing can ever clean up. MATCH on missing chunks writes nothing,
+    # but RELATED_TO edges between existing entities would still be created, so check first.
+    if not document_exists(document_id):
+        logger.info(f"Document {document_id} no longer exists; discarding extracted entities")
+        return {"mentions": 0, "relations": 0, "entities": 0, "skipped": "document no longer exists"}
 
     ensure_schema()
     with get_driver().session() as session:

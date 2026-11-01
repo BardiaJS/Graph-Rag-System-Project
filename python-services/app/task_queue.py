@@ -26,3 +26,21 @@ redis_conn = Redis(
 )
 
 queue = Queue(QUEUE_NAME, connection=redis_conn, default_timeout=JOB_TIMEOUT)
+
+# Entity extraction is slow (one LLM call per chunk: tens of minutes), so it runs as its OWN
+# job on its OWN queue. A document is searchable as soon as ingestion finishes; entities
+# enrich it later, and a long entity run never blocks other uploads.
+ENTITIES_QUEUE_NAME = os.getenv("RQ_ENTITIES_QUEUE", "graph_rag_entities")
+ENTITY_JOB_TIMEOUT = int(os.getenv("ENTITY_JOB_TIMEOUT", 6 * 3600))
+entities_queue = Queue(ENTITIES_QUEUE_NAME, connection=redis_conn, default_timeout=ENTITY_JOB_TIMEOUT)
+
+
+def entity_cancel_key(document_id: int) -> str:
+    """While this key exists, entity work for the document must stop and write nothing
+    (set on delete and on re-processing)."""
+    return f"graphrag:entities:cancel:{int(document_id)}"
+
+
+def entity_job_key(document_id: int) -> str:
+    """Holds the id of the most recent entity job for a document."""
+    return f"graphrag:entities:job:{int(document_id)}"
