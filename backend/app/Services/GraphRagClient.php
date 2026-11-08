@@ -17,7 +17,11 @@ class GraphRagClient
     {
         $request = Http::baseUrl(rtrim((string) config('graphrag.base_url'), '/'))
             ->acceptJson()
-            ->timeout($timeout);
+            ->timeout($timeout)
+            // The Python API can be restarted in seconds. One refused connection must not throw
+            // away minutes of LLM work, so retry connection failures (5 x 3 s) and nothing else:
+            // HTTP errors such as 400/404/409 still fail immediately.
+            ->retry(5, 3000, fn ($exception) => $exception instanceof ConnectionException);
 
         $key = config('graphrag.api_key');
         if ($key) {

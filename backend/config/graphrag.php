@@ -48,6 +48,9 @@ return [
         'max_subquestions' => (int) env('GRAPH_RAG_MAX_SUBQUESTIONS', 4),
         'max_iterations' => (int) env('GRAPH_RAG_MAX_ITERATIONS', 2),
         'evidence_per_doc' => (int) env('GRAPH_RAG_EVIDENCE_PER_DOC', 6),
+        // Hard limits on what goes into ONE prompt, across all documents (see fitBudget()).
+        'max_sources' => (int) env('GRAPH_RAG_MAX_SOURCES', 12),
+        'evidence_char_budget' => (int) env('GRAPH_RAG_EVIDENCE_CHAR_BUDGET', 12000),
         'grade_snippet_chars' => 500,
         'history_answer_chars' => 300,
     ],

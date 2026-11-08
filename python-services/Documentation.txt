@@ -22,9 +22,6 @@ curl -s http://localhost:6333/collections | jq '.'
 
 
 
-pkill -9 -f uvicorn
-sleep 1
-uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 
 
 

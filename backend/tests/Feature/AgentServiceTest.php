@@ -388,4 +388,52 @@ class AgentServiceTest extends TestCase
         Http::assertSent(fn ($request) => str_contains($request->url(), '/api/chat')
             && str_contains($request['messages'][0]['content'], 'about the ORIGINAL question'));
     }
+
+    public function test_evidence_is_capped_to_fit_the_context_window(): void
+    {
+        config(['graphrag.agent.max_sources' => 12, 'graphrag.agent.evidence_char_budget' => 12000]);
+
+        // 5 documents x 6 chunks of ~1000 characters = 30 sources, far more than one prompt can hold.
+        $items = [];
+        foreach ([1, 2, 3, 4, 5] as $doc) {
+            for ($i = 0; $i < 6; $i++) {
+                $items[] = $this->evidence($doc, $i, str_repeat('word ', 200), 0.9 - $i * 0.05 - $doc * 0.001);
+            }
+        }
+
+        Http::fake([
+            'rag.test/retrieve' => Http::response(['evidence' => $items]),
+            'rag.test/verify' => Http::response([
+                'answer' => 'A [S1].', 'cited_sids' => ['S1'], 'unverified_figures' => [], 'warnings' => [],
+            ]),
+            'ollama.test/api/chat' => Http::sequence()
+                ->push($this->chat('{"sub_questions":[{"q":"everything","document_ids":[1,2,3,4,5]}]}'))
+                ->push($this->chat('{"sufficient":true}'))
+                ->push($this->chat('A [S1].')),
+        ]);
+
+        $result = app(AgentService::class)->answer('Question about everything', [1, 2, 3, 4, 5]);
+
+        $synth = collect($result['trace'])->firstWhere('step', 'synthesize');
+        $this->assertLessThanOrEqual(12, $synth['sources_in_context']);
+        $this->assertGreaterThanOrEqual(5, $synth['sources_in_context']);
+
+        // The prompt stays small AND every document keeps at least its best chunk.
+        Http::assertSent(function ($request) {
+            if (!str_contains($request->url(), '/api/chat')) {
+                return false;
+            }
+            $content = $request['messages'][1]['content'] ?? '';
+            if (!str_contains($content, 'Sources:')) {
+                return false;
+            }
+            foreach ([1, 2, 3, 4, 5] as $doc) {
+                if (!str_contains($content, 'document ' . $doc)) {
+                    return false;
+                }
+            }
+
+            return mb_strlen($content) < 14000;
+        });
+    }
 }

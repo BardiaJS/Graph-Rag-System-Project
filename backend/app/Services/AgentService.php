@@ -343,10 +343,65 @@ TXT;
             }
         }
 
+        $chosen = $this->fitBudget($chosen);
+
         usort($chosen, fn ($a, $b) => [$a['document_id'], $a['chunk_index'] ?? 0]
             <=> [$b['document_id'], $b['chunk_index'] ?? 0]);
 
         return array_values($chosen);
+    }
+
+    /**
+     * Keep ONE prompt inside the model's context window.
+     *
+     * "6 chunks per document" is not a limit when a session holds many documents: 30+ sources
+     * overflow num_ctx, and Ollama then silently drops the START of the prompt (the answering
+     * rules), besides taking minutes to read it on CPU. So drop the lowest-scoring sources until
+     * both limits hold, but always keep every document's single best chunk.
+     *
+     * @param  array<int, array<string, mixed>>  $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function fitBudget(array $items): array
+    {
+        $maxSources = max(1, (int) config('graphrag.agent.max_sources', 12));
+        $budget = max(1000, (int) config('graphrag.agent.evidence_char_budget', 12000));
+
+        // text + roughly 200 characters for the source label and linked-figure lines
+        $size = fn (array $e): int => mb_strlen((string) ($e['text'] ?? '')) + 200;
+
+        $bestPerDocument = [];
+        foreach ($items as $index => $e) {
+            $doc = $e['document_id'];
+            if (!isset($bestPerDocument[$doc])
+                || ($e['score'] ?? 0) > ($items[$bestPerDocument[$doc]]['score'] ?? 0)) {
+                $bestPerDocument[$doc] = $index;
+            }
+        }
+        $protected = array_flip($bestPerDocument);
+
+        $total = array_sum(array_map($size, $items));
+        while (count($items) > $maxSources || $total > $budget) {
+            $victim = null;
+            $lowest = INF;
+            foreach ($items as $index => $e) {
+                if (isset($protected[$index])) {
+                    continue;
+                }
+                $score = (float) ($e['score'] ?? 0);
+                if ($score < $lowest) {
+                    $lowest = $score;
+                    $victim = $index;
+                }
+            }
+            if ($victim === null) {
+                break; // only the protected best-per-document chunks are left
+            }
+            $total -= $size($items[$victim]);
+            unset($items[$victim]);
+        }
+
+        return $items;
     }
 
     // -------------------------------------------------------------- grading
