@@ -29,6 +29,8 @@ class AgentServiceTest extends TestCase
             'graphrag.agent.max_iterations' => 3,
             'graphrag.agent.max_subquestions' => 4,
             'graphrag.agent.evidence_per_doc' => 6,
+            // The scripted tests below expect plan -> grade -> answer; the fast path has its own tests.
+            'graphrag.agent.fast_path' => false,
         ]);
     }
 
@@ -435,5 +437,119 @@ class AgentServiceTest extends TestCase
 
             return mb_strlen($content) < 14000;
         });
+    }
+
+    private function chatCalls(): int
+    {
+        return Http::recorded(fn ($request) => str_contains($request->url(), '/api/chat'))->count();
+    }
+
+    public function test_a_simple_question_takes_the_fast_path_with_a_single_model_call(): void
+    {
+        config(['graphrag.agent.fast_path' => true]);
+
+        Http::fake([
+            'rag.test/retrieve' => Http::response(['evidence' => [$this->evidence(7, 1, 'Reference counting tracks references.', 0.9)]]),
+            'rag.test/verify' => Http::response([
+                'answer' => 'It tracks references [S1].', 'cited_sids' => ['S1'], 'unverified_figures' => [], 'warnings' => [],
+            ]),
+            // Only ONE reply is scripted: a planner or grader call would exhaust the sequence and fail the test.
+            'ollama.test/api/chat' => Http::sequence()->push($this->chat('It tracks references [S1].')),
+        ]);
+
+        $result = app(AgentService::class)->answer('What is reference counting?', [7]);
+
+        $this->assertSame(1, $this->chatCalls());
+        $this->assertSame('It tracks references [S1].', $result['answer']);
+        $plan = collect($result['trace'])->firstWhere('step', 'plan');
+        $this->assertSame('simple question', $plan['skipped']);
+        $this->assertNotContains('grade', array_column($result['trace'], 'step'));
+    }
+
+    private function fakeFullPathReplies(): void
+    {
+        Http::fake([
+            'rag.test/retrieve' => Http::response(['evidence' => [$this->evidence(7, 1, 'Some passage.', 0.9)]]),
+            'rag.test/verify' => Http::response([
+                'answer' => 'A [S1].', 'cited_sids' => ['S1'], 'unverified_figures' => [], 'warnings' => [],
+            ]),
+            'ollama.test/api/chat' => Http::sequence()
+                ->push($this->chat('{"sub_questions":[{"q":"x","document_ids":[7]}]}'))
+                ->push($this->chat('{"sufficient":true}'))
+                ->push($this->chat('A [S1].')),
+        ]);
+    }
+
+    public function test_a_comparison_keeps_the_full_path(): void
+    {
+        config(['graphrag.agent.fast_path' => true]);
+        $this->fakeFullPathReplies();
+
+        app(AgentService::class)->answer('What is the difference between include and require?', [7]);
+
+        $this->assertSame(3, $this->chatCalls()); // plan + grade + answer
+    }
+
+    public function test_a_follow_up_with_history_keeps_the_full_path(): void
+    {
+        config(['graphrag.agent.fast_path' => true]);
+        $this->fakeFullPathReplies();
+
+        // "its" can only be resolved by the planner, which sees the earlier conversation.
+        app(AgentService::class)->answer('And its limitations?', [7], [
+            'history' => [['question' => 'What is X?', 'answer' => 'X is a method.']],
+        ]);
+
+        $this->assertSame(3, $this->chatCalls());
+    }
+
+    public function test_a_refusal_is_not_forced_to_cite_sources(): void
+    {
+        // The model correctly says the sources do not cover the question. Running the repair pass here
+        // made it cite every source ("12 sources for the capital of France").
+        Http::fake([
+            'rag.test/retrieve' => Http::response(['evidence' => [$this->evidence(7, 1, 'Unrelated passage.', 0.8)]]),
+            'rag.test/verify' => Http::response([
+                'answer' => 'The sources do not contain information about this.',
+                'cited_sids' => [], 'unverified_figures' => [],
+                'warnings' => ['Answer contains no verifiable citations.'],
+            ]),
+            // Exactly plan, grade, answer. A repair call would exhaust the sequence and fail the test.
+            'ollama.test/api/chat' => Http::sequence()
+                ->push($this->chat('{"sub_questions":[{"q":"capital of France","document_ids":[7]}]}'))
+                ->push($this->chat('{"sufficient":true}'))
+                ->push($this->chat('The sources do not contain information about this.')),
+        ]);
+
+        $result = app(AgentService::class)->answer('What is the capital of France?', [7]);
+
+        $this->assertSame([], $result['citations']);
+        $this->assertSame([], $result['warnings']);       // a refusal citing nothing is correct, not a defect
+        $this->assertContains('refusal', array_column($result['trace'], 'step'));
+        $this->assertNotContains('repair', array_column($result['trace'], 'step'));
+    }
+
+    public function test_the_trace_records_where_the_time_went(): void
+    {
+        Http::fake([
+            'rag.test/retrieve' => Http::response(['evidence' => [$this->evidence(7, 1, 'Some passage.', 0.9)]]),
+            'rag.test/verify' => Http::response([
+                'answer' => 'A [S1].', 'cited_sids' => ['S1'], 'unverified_figures' => [], 'warnings' => [],
+            ]),
+            'ollama.test/api/chat' => Http::sequence()
+                ->push($this->chat('{"sub_questions":[{"q":"x","document_ids":[7]}]}'))
+                ->push($this->chat('{"sufficient":true}'))
+                ->push($this->chat('A [S1].')),
+        ]);
+
+        $result = app(AgentService::class)->answer('Question?', [7]);
+
+        $byStep = collect($result['trace'])->keyBy('step');
+        foreach (['plan', 'retrieve', 'grade'] as $step) {
+            $this->assertArrayHasKey('seconds', $byStep[$step], "step '$step' should be timed");
+        }
+        foreach (['llm_seconds', 'verify_seconds', 'total_seconds'] as $key) {
+            $this->assertArrayHasKey($key, $byStep['synthesize']);
+        }
     }
 }

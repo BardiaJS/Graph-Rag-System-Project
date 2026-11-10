@@ -73,7 +73,14 @@ TXT;
         . 'answer, say so plainly instead of guessing. '
         . '(6) The sources are excerpts of documents the user uploaded: when the question says '
         . '"this paper", "this document" or "the document", it means the document the sources '
-        . 'come from, so never claim that no paper or document was provided. ';
+        . 'come from, so never claim that no paper or document was provided. '
+        . '(7) Keep it short: at most about 120 words unless the question asks for detail or a list. ';
+
+    /** An answer that says "the sources don't cover this". Such an answer correctly cites nothing. */
+    private const REFUSAL = '/(not (contain|mention|provide|include|found|covered)|no (relevant )?information|'
+        . 'cannot (find|answer)|can\'t (find|answer)|couldn.?t find|could not find|'
+        . 'do(es)? not (say|specify|discuss|address)|not (available )?in the (provided )?(sources|documents)|'
+        . '(اطلاعاتی|پاسخی).{0,40}(وجود ندارد|یافت نشد|ارائه نشده)|نمی.?توان)/iu';
 
     public function __construct(
         private GraphRagClient $rag,
@@ -96,23 +103,36 @@ TXT;
         $maxIterations = max(1, (int) config('graphrag.agent.max_iterations', 3));
         $trace = [];
         $store = [];
+        $started = microtime(true);
 
-        $pending = $this->plan($question, $documentIds, $options, $trace);
+        $fast = $this->isSimple($question, $options);
+        if ($fast) {
+            $pending = [['q' => $question, 'document_ids' => $documentIds]];
+            $trace[] = ['step' => 'plan', 'sub_questions' => $pending, 'skipped' => 'simple question'];
+        } else {
+            $t = microtime(true);
+            $pending = $this->plan($question, $documentIds, $options, $trace);
+            $trace[array_key_last($trace)]['seconds'] = round(microtime(true) - $t, 1);
+        }
 
         for ($i = 1; $i <= $maxIterations; $i++) {
             $trace[] = ['step' => 'iteration', 'n' => $i];
+            $t = microtime(true);
             $new = $this->retrieveInto($pending, $documentIds, $store, $trace);
+            $trace[array_key_last($trace)]['seconds'] = round(microtime(true) - $t, 1);
 
             // Stop when a follow-up round found nothing new, or on the last round.
             if ($i > 1 && $new === 0) {
                 $trace[] = ['step' => 'stop', 'reason' => 'no new evidence'];
                 break;
             }
-            if ($i === $maxIterations) {
+            if ($i === $maxIterations || $fast) {
                 break;
             }
 
+            $t = microtime(true);
             $pending = $this->grade($question, $documentIds, $store, $options, $trace);
+            $trace[array_key_last($trace)]['seconds'] = round(microtime(true) - $t, 1);
             if (count($pending) === 0) {
                 break;
             }
@@ -135,18 +155,38 @@ TXT;
 
         $sources = $this->toSources($evidence);
         $messages = $this->synthMessages($question, $evidence, $options);
+        $t = microtime(true);
         $raw = trim($this->llm->chat($messages, false, 0.1, $this->model($options)));
-        $check = $this->rag->verify($raw, $sources);
+        $llmSeconds = round(microtime(true) - $t, 1);
 
-        // Small local models often write a fluent answer and forget the [S#] markers.
-        // One repair pass (only when nothing at all is cited) fixes most of those cases.
+        $t = microtime(true);
+        $check = $this->rag->verify($raw, $sources);
+        $verifySeconds = round(microtime(true) - $t, 1);
+
         if (count($check['cited_sids']) === 0) {
-            $repaired = $this->repair($messages, $raw, $options);
-            if ($repaired !== null) {
-                $second = $this->rag->verify($repaired, $sources);
-                $trace[] = ['step' => 'repair', 'cited' => count($second['cited_sids'])];
-                if (count($second['cited_sids']) > 0) {
-                    $check = $second;
+            if (preg_match(self::REFUSAL, $raw)) {
+                // "The sources don't cover this" correctly cites nothing. Do NOT run the repair
+                // pass: asked to cite every claim, the model attaches every source to a refusal.
+                $check['warnings'] = array_values(array_filter(
+                    $check['warnings'],
+                    fn ($w) => !str_contains($w, 'no verifiable citations')
+                ));
+                $trace[] = ['step' => 'refusal', 'note' => 'answer states the sources do not cover the question'];
+            } else {
+                // Small local models often write a fluent answer and forget the [S#] markers.
+                // One repair pass (only when nothing at all is cited) fixes most of those cases.
+                $t = microtime(true);
+                $repaired = $this->repair($messages, $raw, $options);
+                if ($repaired !== null) {
+                    $second = $this->rag->verify($repaired, $sources);
+                    $trace[] = [
+                        'step' => 'repair',
+                        'cited' => count($second['cited_sids']),
+                        'seconds' => round(microtime(true) - $t, 1),
+                    ];
+                    if (count($second['cited_sids']) > 0) {
+                        $check = $second;
+                    }
                 }
             }
         }
@@ -173,6 +213,9 @@ TXT;
             'step' => 'synthesize',
             'sources_in_context' => count($evidence),
             'sources_cited' => count($citations),
+            'llm_seconds' => $llmSeconds,
+            'verify_seconds' => $verifySeconds,
+            'total_seconds' => round(microtime(true) - $started, 1),
         ];
 
         return [
@@ -181,6 +224,31 @@ TXT;
             'warnings' => $check['warnings'],
             'trace' => $trace,
         ];
+    }
+
+    /**
+     * A question that needs neither decomposition nor a quality check: short, no comparison,
+     * and no earlier conversation whose references ("it", "the second one") must be resolved.
+     * These skip the planner and grader LLM calls (typically 2 of the 3 generations).
+     */
+    private function isSimple(string $question, array $options): bool
+    {
+        if (!(bool) config('graphrag.agent.fast_path', true)) {
+            return false;
+        }
+        if (!empty($options['history'])) {
+            return false;
+        }
+
+        $words = preg_split('/\s+/u', trim($question), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if (count($words) > 18) {
+            return false;
+        }
+
+        return !preg_match(
+            '/\b(compare|comparison|difference|differences|differ|versus|vs|both|between|contrast)\b|مقایسه|تفاوت|هر دو|در برابر|بین/iu',
+            $question
+        );
     }
 
     // -------------------------------------------------------------- history
@@ -466,8 +534,8 @@ TXT;
         $language = $options['answer_language'] ?? null;
 
         $rule = is_string($language) && $language !== ''
-            ? '(7) Answer ONLY in ' . $language . '.'
-            : '(7) Answer in the same language as the question.';
+            ? '(8) Answer ONLY in ' . $language . '.'
+            : '(8) Answer in the same language as the question.';
 
         $extra = $options['extra_instructions'] ?? null;
         if (is_string($extra) && $extra !== '') {

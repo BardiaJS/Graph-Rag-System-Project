@@ -26,7 +26,7 @@ return [
         'model' => env('OLLAMA_MODEL', 'qwen2.5:7b'),
         'timeout' => (int) env('OLLAMA_TIMEOUT', 280),
         'num_ctx' => (int) env('OLLAMA_NUM_CTX', 8192),
-        'num_predict' => (int) env('OLLAMA_NUM_PREDICT', 768),
+        'num_predict' => (int) env('OLLAMA_NUM_PREDICT', 512),
         'keep_alive' => env('OLLAMA_KEEP_ALIVE', '10m'),
     ],
 
@@ -48,6 +48,9 @@ return [
         'max_subquestions' => (int) env('GRAPH_RAG_MAX_SUBQUESTIONS', 4),
         'max_iterations' => (int) env('GRAPH_RAG_MAX_ITERATIONS', 2),
         'evidence_per_doc' => (int) env('GRAPH_RAG_EVIDENCE_PER_DOC', 6),
+        // Simple questions (short, no comparison, no earlier conversation to resolve) skip the
+        // planner and grader LLM calls: retrieve -> answer -> verify, one generation instead of three.
+        'fast_path' => (bool) env('GRAPH_RAG_FAST_PATH', true),
         // Hard limits on what goes into ONE prompt, across all documents (see fitBudget()).
         'max_sources' => (int) env('GRAPH_RAG_MAX_SOURCES', 12),
         'evidence_char_budget' => (int) env('GRAPH_RAG_EVIDENCE_CHAR_BUDGET', 12000),
