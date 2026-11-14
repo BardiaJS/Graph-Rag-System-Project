@@ -42,3 +42,8 @@ curl -X POST http://localhost:8001/process \
     "file_path": "documents/1/d0ExHGfk2K7tnMdRpwpXi4PSTzoVRf2qPhyXpSHz.pdf",
     "document_ids": [1]
   }'
+
+
+
+  uvicorn app.main:app --host 0.0.0.0 --port 8001
+  python -m app.worker

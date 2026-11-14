@@ -26,6 +26,9 @@ from neo4j import GraphDatabase
 
 logger = logging.getLogger(__name__)
 
+# "constraint already exists" is reported by the driver at INFO on every run: pure noise.
+logging.getLogger("neo4j.notifications").setLevel(logging.WARNING)
+
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password")

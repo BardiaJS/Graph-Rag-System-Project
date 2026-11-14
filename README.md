@@ -12,7 +12,8 @@ Everything runs locally (Ollama): no document text leaves your infrastructure.
  Python service (FastAPI)  ----------------+
    ingestion   PDF -> OCR check -> Docling -> chunks -> figures -> Qdrant + Neo4j
    retrieval   vector + neighbour chunks + shared-entity hop + linked figures
-   verify      strips citations to unknown sources, flags invented figure numbers
+   verify      citations: drops unknown ones, strips them from refusals, prunes citation stuffing;
+               flags invented figure numbers and numbers that appear in no source
    documents   list / detail / delete across every store
      |
      +-- Redis (RQ queues) -- Qdrant (vectors) -- Neo4j (graph) -- Ollama (LLM)
@@ -62,6 +63,8 @@ warns when the count is wrong.
 | `OLLAMA_URL`, `OLLAMA_NUM_CTX` | Ollama address; context size (8192) |
 | `GRAPH_RAG_MODEL_EN` / `_FA` | Model per answer language. A 7B model (`qwen2.5:7b`) follows the citation format far better than a 3B one |
 | `GRAPH_RAG_MAX_ITERATIONS` | Retrieve/grade rounds per question (default 2) |
+| `GRAPH_RAG_FAST_PATH` | `true` (default): simple questions (short, no comparison, no earlier conversation) skip the planner and grader calls, so one model generation instead of three. Comparisons and follow-ups always take the full path |
+| `OLLAMA_NUM_PREDICT` | Max answer tokens (default 512). Generation time grows with answer length |
 | `GRAPH_RAG_MAX_SOURCES`, `GRAPH_RAG_EVIDENCE_CHAR_BUDGET` | Hard cap on sources per prompt (12 / 12000 chars). Keeps the prompt inside `num_ctx` and answers fast; every document keeps its best chunk |
 | `APP_TIMEZONE` | Set it (e.g. `Asia/Tehran`): Laravel logs UTC by default while the Python logs use local time, which makes cross-checking confusing |
 
@@ -104,8 +107,11 @@ python eval/run_eval.py answer --questions eval/questions.sample.json --session 
 ```
 
 `retrieval` is fast and needs no LLM: hit rate, MRR, reference-list contamination.
-`answer` goes through your real API: pass rate, citation rate, warning-free rate, latency, and
-whether unanswerable questions are refused instead of invented. Write your own question file
+`answer` goes through your real API: pass rate, citation rate, warning-free rate, latency, average
+sources cited per answer, a per-step time breakdown (plan / retrieve / grade / answer LLM / verify, from
+the stored trace), and whether unanswerable questions are refused WITHOUT citing sources (a refusal that
+cites many sources fails). A 100% pass rate is only as meaningful as the questions: read some answers
+(`--show-answers`), do not trust the number alone. Write your own question file
 (see the docstring at the top of `run_eval.py`); re-run after every prompt, model or chunking change.
 
 ## Troubleshooting
@@ -116,6 +122,7 @@ whether unanswerable questions are refused instead of invented. Write your own q
 | Callback payload misses fields, `qdrant_points: 0` | An old worker is still running. `ps aux \| grep app.worker`, `pkill -9 -f app.worker`, start one |
 | `LLM call failed ... 404` | `OLLAMA_MODEL` is not installed. The worker prints the installed names at startup |
 | Entity extraction stops with "model unavailable" | Ollama down or wrong model (3 failures in a row abort it). Fix, then `POST /documents/{id}/entities` |
+| An answer cites nearly every source (e.g. 12 of 12), even a refusal | Over-citing. A refusal ("the sources do not cover this") correctly cites nothing and is no longer sent through the citation repair pass. The eval's `avg cited sources` and `unanswerable handled` lines track this |
 | Answer has no `[S#]` citations | Small model. Use a 7B model; the loop already retries once |
 | `cURL error 7 ... port 8001` in `laravel.log` | The Python API was not running. Laravel retries for ~15 s (covers a restart); otherwise start uvicorn and re-ask. `GET /health` shows what is up |
 | Question takes minutes | Many retrieve/grade rounds on a slow model: lower `GRAPH_RAG_MAX_ITERATIONS`, use a faster model; check `ollama ps` for GPU use |

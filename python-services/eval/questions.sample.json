@@ -1,41 +1,114 @@
 [
-  {"q": "What is reference counting in PHP?",
-   "expect": ["reference counting"],
-   "answer_contains": ["memory", "reference"]},
-
-  {"q": "Are function names in PHP case-sensitive?",
-   "expect": ["not case-sensitive"],
-   "answer_contains": ["not case-sensitive", "case-insensitive", "case insensitive", "not case sensitive"]},
-
-  {"q": "What does the eval function do and is it recommended?",
-   "expect": ["eval function"],
-   "answer_contains": ["not recommended", "execute"]},
-
-  {"q": "What is the foreach loop used for?",
-   "expect": ["foreach loop"],
-   "answer_contains": ["iterate", "array"]},
-
-  {"q": "What is operator associativity?",
-   "expect": ["associativity"],
-   "answer_contains": ["order", "precedence"]},
-
-  {"q": "Give a brief history of PHP.",
-   "expect": ["history of php", "php history"],
-   "answer_contains": ["web", "early"]},
-
-  {"q": "What is server-side scripting and how does PHP use it?",
-   "expect": ["server-side scripting"],
-   "answer_contains": ["server"]},
-
-  {"q": "How do you load a configuration file in PHP?",
-   "expect": ["require"],
-   "answer_contains": ["require", "include"]},
-
-  {"q": "ارجاع شمارنده (reference counting) در PHP چیست؟",
-   "expect": ["reference counting"],
-   "answer_contains": ["reference", "ارجاع", "مرجع", "شمارش"]},
-
-  {"q": "What is the capital of France?", "unanswerable": true},
-  {"q": "What is the default port number of a MySQL server?", "unanswerable": true},
-  {"q": "Who won the 2018 FIFA World Cup?", "unanswerable": true}
+  {
+    "q": "What is reference counting in PHP?",
+    "expect": [
+      "reference counting"
+    ],
+    "answer_contains": [
+      "memory",
+      "reference"
+    ]
+  },
+  {
+    "q": "Are function names in PHP case-sensitive?",
+    "expect": [
+      "not case-sensitive"
+    ],
+    "answer_contains": [
+      "not case-sensitive",
+      "case-insensitive",
+      "case insensitive",
+      "not case sensitive"
+    ]
+  },
+  {
+    "q": "What does the eval function do and is it recommended?",
+    "expect": [
+      "eval function"
+    ],
+    "answer_contains": [
+      "not recommended",
+      "execute"
+    ]
+  },
+  {
+    "q": "What is the foreach loop used for?",
+    "expect": [
+      "foreach loop"
+    ],
+    "answer_contains": [
+      "iterate",
+      "array"
+    ]
+  },
+  {
+    "q": "What is operator associativity?",
+    "expect": [
+      "associativity"
+    ],
+    "answer_contains": [
+      "order",
+      "precedence"
+    ]
+  },
+  {
+    "q": "Give a brief history of PHP.",
+    "expect": [
+      "history",
+      "1994",
+      "rasmus"
+    ],
+    "answer_contains": [
+      "1994",
+      "rasmus",
+      "lerdorf",
+      "perl",
+      "personal home page",
+      "early"
+    ]
+  },
+  {
+    "q": "What is server-side scripting and how does PHP use it?",
+    "expect": [
+      "server-side scripting"
+    ],
+    "answer_contains": [
+      "server"
+    ]
+  },
+  {
+    "q": "How do you include another PHP file inside a script?",
+    "expect": [
+      "require",
+      "include"
+    ],
+    "answer_contains": [
+      "require",
+      "include"
+    ]
+  },
+  {
+    "q": "ارجاع شمارنده (reference counting) در PHP چیست؟",
+    "expect": [
+      "reference counting"
+    ],
+    "answer_contains": [
+      "reference",
+      "ارجاع",
+      "مرجع",
+      "شمارش"
+    ]
+  },
+  {
+    "q": "What is the capital of France?",
+    "unanswerable": true
+  },
+  {
+    "q": "What is the default port number of a MySQL server?",
+    "unanswerable": true
+  },
+  {
+    "q": "Who won the 2018 FIFA World Cup?",
+    "unanswerable": true
+  }
 ]

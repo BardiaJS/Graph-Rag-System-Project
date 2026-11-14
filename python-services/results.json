@@ -1,0 +1,121 @@
+{
+  "summary": {
+    "mode": "answer",
+    "questions": 5,
+    "passed": 5,
+    "completed": 5,
+    "with_citations": 3,
+    "clean_no_warnings": 5,
+    "submit_errors": 0,
+    "median_seconds": 75.4,
+    "p90_seconds": 122.3,
+    "avg_cited_sources": 2.8,
+    "unanswerable": 2,
+    "unanswerable_passed": 2,
+    "avg_step_seconds": {
+      "retrieve": 0.7,
+      "answer_llm": 73.9,
+      "verify": 0.0
+    }
+  },
+  "results": [
+    {
+      "q": "What is the foreach loop used for?",
+      "error": null,
+      "seconds": 75.4,
+      "completed": true,
+      "cited": true,
+      "clean": true,
+      "warnings": [],
+      "answer": "The foreach loop is used to iterate over elements in an array or other iterable objects [S1][S3][S6][S9][S12].",
+      "n_sources": 5,
+      "steps": {
+        "retrieve": 2.4,
+        "answer_llm": 68.7,
+        "verify": 0
+      },
+      "unanswerable": false,
+      "grounded": true,
+      "answer_ok": true,
+      "passed": true
+    },
+    {
+      "q": "Give a brief history of PHP.",
+      "error": null,
+      "seconds": 122.3,
+      "completed": true,
+      "cited": true,
+      "clean": true,
+      "warnings": [],
+      "answer": "PHP originated in 1994 when Rasmus Lerdorf created a set of Perl scripts to track visits to his online resume, later expanding it to handle form data and interact with databases [S2][S5]. PHP 2.0 was released in 1995, adding more advanced features and database communication [S3][S6]. PHP 3.0, released in 1998, was a complete rewrite and introduced the C parser, enhancing efficiency and adding database support [S3][S6]. PHP 4.0, released in 2000, supported object-oriented programming and improved performance, making it a full-fledged scripting language [S3][S6]. PHP 5.0, released in 2004, introduced the Zend Engine 2, significantly improving performance and adding features like exception handling [S3][S6].",
+      "n_sources": 4,
+      "steps": {
+        "retrieve": 0.3,
+        "answer_llm": 119.1,
+        "verify": 0
+      },
+      "unanswerable": false,
+      "grounded": true,
+      "answer_ok": true,
+      "passed": true
+    },
+    {
+      "q": "How do you include another PHP file inside a script?",
+      "error": null,
+      "seconds": 98.0,
+      "completed": true,
+      "cited": true,
+      "clean": true,
+      "warnings": [],
+      "answer": "You can include another PHP file inside a script using the `include` statement [S2]. This statement includes and executes the code from another file. If the file is not found, it generates a warning but the script continues to run [S2]. Alternatively, you can use the `require` statement, which also includes and executes the code from another file, but if the file is not found, it generates a fatal error and stops the script execution [S2]. For preventing multiple inclusions, use `include_once` or `require_once` [S3][S6][S9][S12]. You can also use absolute paths to include files from different directories [S3][S6][S9][S12].",
+      "n_sources": 5,
+      "steps": {
+        "retrieve": 0.2,
+        "answer_llm": 95.6,
+        "verify": 0
+      },
+      "unanswerable": false,
+      "grounded": true,
+      "answer_ok": true,
+      "passed": true
+    },
+    {
+      "q": "What is the capital of France?",
+      "error": null,
+      "seconds": 37.6,
+      "completed": true,
+      "cited": false,
+      "clean": true,
+      "warnings": [],
+      "answer": "The sources provided do not contain information about the capital of France. Therefore, I cannot answer this question based on the given documents.",
+      "n_sources": 0,
+      "steps": {
+        "retrieve": 0.2,
+        "answer_llm": 35,
+        "verify": 0
+      },
+      "unanswerable": true,
+      "refused": true,
+      "passed": true
+    },
+    {
+      "q": "What is the default port number of a MySQL server?",
+      "error": null,
+      "seconds": 53.5,
+      "completed": true,
+      "cited": false,
+      "clean": true,
+      "warnings": [],
+      "answer": "The sources provided do not contain information about the default port number of a MySQL server. Therefore, I cannot answer this question based on the given documents.",
+      "n_sources": 0,
+      "steps": {
+        "retrieve": 0.2,
+        "answer_llm": 50.9,
+        "verify": 0
+      },
+      "unanswerable": true,
+      "refused": true,
+      "passed": true
+    }
+  ]
+}

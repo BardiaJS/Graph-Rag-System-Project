@@ -552,4 +552,45 @@ class AgentServiceTest extends TestCase
             $this->assertArrayHasKey($key, $byStep['synthesize']);
         }
     }
+
+    public function test_a_standalone_question_with_history_still_takes_the_fast_path_without_the_history(): void
+    {
+        config(['graphrag.agent.fast_path' => true]);
+
+        Http::fake([
+            'rag.test/retrieve' => Http::response(['evidence' => [$this->evidence(7, 1, 'The foreach loop iterates over arrays.', 0.9)]]),
+            'rag.test/verify' => Http::response([
+                'answer' => 'It iterates [S1].', 'cited_sids' => ['S1'], 'unverified_figures' => [], 'warnings' => [],
+            ]),
+            'ollama.test/api/chat' => Http::sequence()->push($this->chat('It iterates [S1].')),
+        ]);
+
+        // Every question after the first in a session has history; that must not disable the fast path.
+        app(AgentService::class)->answer('What is the foreach loop used for?', [7], [
+            'history' => [['question' => 'What is reference counting?', 'answer' => 'A memory technique.']],
+        ]);
+
+        $this->assertSame(1, $this->chatCalls());
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/api/chat')
+            && !str_contains(json_encode($request['messages']), 'Previous conversation'));
+    }
+
+    public function test_this_paper_is_not_mistaken_for_a_reference_to_an_earlier_turn(): void
+    {
+        config(['graphrag.agent.fast_path' => true]);
+
+        Http::fake([
+            'rag.test/retrieve' => Http::response(['evidence' => [$this->evidence(7, 1, 'We propose a method.', 0.9)]]),
+            'rag.test/verify' => Http::response([
+                'answer' => 'A method [S1].', 'cited_sids' => ['S1'], 'unverified_figures' => [], 'warnings' => [],
+            ]),
+            'ollama.test/api/chat' => Http::sequence()->push($this->chat('A method [S1].')),
+        ]);
+
+        app(AgentService::class)->answer('What is the main contribution of this paper?', [7], [
+            'history' => [['question' => 'Earlier question?', 'answer' => 'Earlier answer.']],
+        ]);
+
+        $this->assertSame(1, $this->chatCalls());
+    }
 }

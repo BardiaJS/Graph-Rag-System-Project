@@ -116,6 +116,8 @@ class GraphRagClient
             'answer' => (string) ($data['answer'] ?? $answer),
             'cited_sids' => $data['cited_sids'] ?? [],
             'unverified_figures' => $data['unverified_figures'] ?? [],
+            'unsupported_numbers' => $data['unsupported_numbers'] ?? [],
+            'refusal' => (bool) ($data['refusal'] ?? false),
             'warnings' => $data['warnings'] ?? [],
         ];
     }

@@ -208,6 +208,15 @@ def run_answers(args, questions):
             (s.get("text") or "") + " " + " ".join(s.get("headings") or []) for s in sources
         )
 
+        plans = res.get("search_plans")
+        trace = plans.get("trace", []) if isinstance(plans, dict) else []
+        steps = {}
+        for step in trace:
+            if "seconds" in step:
+                steps[step["step"]] = round(steps.get(step["step"], 0) + step["seconds"], 1)
+            if step.get("step") == "synthesize":
+                steps["answer_llm"] = step.get("llm_seconds")
+                steps["verify"] = step.get("verify_seconds")
         row.update(
             completed=res.get("status") == "completed",
             cited=len(sources) > 0,
@@ -215,10 +224,16 @@ def run_answers(args, questions):
             warnings=warnings,
             answer=answer,
             n_sources=len(sources),
+            steps=steps,
+            unanswerable=bool(q.get("unanswerable")),
         )
 
         if q.get("unanswerable"):
-            row["passed"] = row["completed"] and (not row["cited"] or bool(REFUSAL.search(answer)))
+            # A good refusal says the documents do not cover it AND does not cite sources as if they did.
+            row["refused"] = bool(REFUSAL.search(answer))
+            row["passed"] = (
+                row["completed"] and row["refused"] and row["n_sources"] <= args.max_refusal_citations
+            )
         else:
             expect, must = q.get("expect") or [], q.get("answer_contains") or []
             row["grounded"] = contains_any(answer + " " + source_text, expect) if expect else None
@@ -247,7 +262,23 @@ def summarize_answers(rows):
         "submit_errors": sum(1 for r in rows if r["error"]),
         "median_seconds": round(statistics.median(times), 1) if times else None,
         "p90_seconds": times[min(len(times) - 1, int(0.9 * len(times)))] if times else None,
+        "avg_cited_sources": round(statistics.mean(r["n_sources"] for r in ran), 1) if ran else None,
+        "unanswerable": sum(1 for r in ran if r.get("unanswerable")),
+        "unanswerable_passed": sum(1 for r in ran if r.get("unanswerable") and r.get("passed")),
+        "avg_step_seconds": step_averages(ran),
     }
+
+
+def step_averages(rows):
+    """Average seconds per step across the questions that reported timings."""
+    totals, counts = {}, {}
+    for r in rows:
+        for name, secs in (r.get("steps") or {}).items():
+            if secs is None:
+                continue
+            totals[name] = totals.get(name, 0) + secs
+            counts[name] = counts.get(name, 0) + 1
+    return {name: round(totals[name] / counts[name], 1) for name in totals}
 
 
 def print_answers(rows, summary, show_answers=False):
@@ -258,6 +289,10 @@ def print_answers(rows, summary, show_answers=False):
             continue
         print(f"{i:>3}  {'PASS' if r['passed'] else 'FAIL':6} {r['n_sources']:>5} "
               f"{len(r['warnings']):>4} {r['seconds']:>6}  {r['q'][:60]}")
+        if r.get("unanswerable") and not r["passed"]:
+            why = ("did not say the documents lack the answer" if not r.get("refused")
+                   else f"refused but still cited {r['n_sources']} sources")
+            print(f"       why     : unanswerable question, {why}")
         if show_answers or not r["passed"]:
             print(f"       answer  : {r['answer'][:220].replace(chr(10), ' ')}")
             for w in r["warnings"]:
@@ -269,6 +304,14 @@ def print_answers(rows, summary, show_answers=False):
     print(f"with citations          : {s['with_citations']}/{n}")
     print(f"clean (no warnings)     : {s['clean_no_warnings']}/{n}")
     print(f"latency median / p90    : {s['median_seconds']} s / {s['p90_seconds']} s")
+    print(f"avg cited sources       : {s['avg_cited_sources']}   (a handful is healthy; ~12 of 12 means over-citing)")
+    if s["unanswerable"]:
+        print(f"unanswerable handled    : {s['unanswerable_passed']}/{s['unanswerable']}   (refused AND did not cite sources)")
+    if s["avg_step_seconds"]:
+        parts = "  ".join(f"{k}={v}s" for k, v in s["avg_step_seconds"].items())
+        print(f"avg seconds by step     : {parts}")
+    else:
+        print("avg seconds by step     : (no timings: update AgentService to the version that records them)")
     if s["submit_errors"]:
         print(f"SUBMIT ERRORS           : {s['submit_errors']}  (token, session id, or --question-field wrong?)")
 
@@ -282,6 +325,7 @@ def main():
     def common(sp):
         sp.add_argument("--questions", required=True, help="path to the questions JSON file")
         sp.add_argument("--out", help="write full results as JSON to this file")
+        sp.add_argument("--only", help="comma-separated 1-based question numbers to run, e.g. 6,8,11")
 
     r = sub.add_parser("retrieval", help="retrieval quality, no LLM")
     common(r)
@@ -298,9 +342,17 @@ def main():
     a.add_argument("--timeout", type=int, default=900, help="seconds to wait per question")
     a.add_argument("--poll", type=float, default=3.0)
     a.add_argument("--show-answers", action="store_true")
+    a.add_argument("--max-refusal-citations", type=int, default=1,
+                   help="an unanswerable question passes only if it cites at most this many sources")
 
     args = p.parse_args()
     questions = load_questions(args.questions)
+    if args.only:
+        wanted = {int(n) for n in args.only.split(",") if n.strip().isdigit()}
+        questions = [q for i, q in enumerate(questions, start=1) if i in wanted]
+        if not questions:
+            sys.exit(f"--only {args.only} matched no question (the file has questions 1..{i if False else len(load_questions(args.questions))})")
+        print(f"running {len(questions)} selected question(s)")
     rows, summary = (run_retrieval if args.mode == "retrieval" else run_answers)(args, questions)
 
     if args.out:

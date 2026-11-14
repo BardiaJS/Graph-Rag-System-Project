@@ -207,6 +207,10 @@ def enqueue_entities(document_id: int) -> Dict[str, Any]:
         meta={"document_id": document_id, "stage": "queued"},
     )
     redis_conn.set(entity_job_key(document_id), job_id, ex=7 * 86400)
+    logger.info(
+        f"Entity extraction queued for document {document_id} as {job_id} "
+        f"(needs a worker: python -m app.worker --entities)"
+    )
     return {"status": "queued", "job_id": job_id}
 
 

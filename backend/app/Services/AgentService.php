@@ -66,7 +66,7 @@ TXT;
 
     private const SYNTH_RULES = 'You answer research questions strictly from the provided sources. '
         . 'Rules: (1) Use only facts stated in the sources. (2) After every claim, cite the '
-        . 'supporting source ids like [S2] or [S1][S4]. (3) When documents differ, say which '
+        . 'supporting source ids like [S2] or [S1][S4], using only the one to three sources that directly state the claim and never listing every source. (3) When documents differ, say which '
         . 'document each statement comes from. (4) Mention a figure only if it is listed under '
         . '"Linked figures" of a source or named in that source\'s text, and cite that source; '
         . 'never invent figure numbers, tables or pages. (5) If the sources do not contain the '
@@ -107,6 +107,10 @@ TXT;
 
         $fast = $this->isSimple($question, $options);
         if ($fast) {
+            // A standalone question does not need the earlier conversation, and including it only
+            // costs prompt time and pulls the answer toward old topics ("the questions and answers
+            // were focused on PHP...").
+            $options['history'] = [];
             $pending = [['q' => $question, 'document_ids' => $documentIds]];
             $trace[] = ['step' => 'plan', 'sub_questions' => $pending, 'skipped' => 'simple question'];
         } else {
@@ -164,7 +168,7 @@ TXT;
         $verifySeconds = round(microtime(true) - $t, 1);
 
         if (count($check['cited_sids']) === 0) {
-            if (preg_match(self::REFUSAL, $raw)) {
+            if ($check['refusal'] || preg_match(self::REFUSAL, $raw)) {
                 // "The sources don't cover this" correctly cites nothing. Do NOT run the repair
                 // pass: asked to cite every claim, the model attaches every source to a refusal.
                 $check['warnings'] = array_values(array_filter(
@@ -236,7 +240,9 @@ TXT;
         if (!(bool) config('graphrag.agent.fast_path', true)) {
             return false;
         }
-        if (!empty($options['history'])) {
+        // With earlier turns, only a question that refers back to them ("its", "the second one",
+        // "and what about...") needs the planner to resolve the reference.
+        if (!empty($options['history']) && $this->refersToEarlierTurns($question)) {
             return false;
         }
 
@@ -248,6 +254,19 @@ TXT;
         return !preg_match(
             '/\b(compare|comparison|difference|differences|differ|versus|vs|both|between|contrast)\b|مقایسه|تفاوت|هر دو|در برابر|بین/iu',
             $question
+        );
+    }
+
+    private function refersToEarlierTurns(string $question): bool
+    {
+        // "this paper / the document" points at the sources, not at an earlier turn.
+        $q = preg_replace('/\\b(this|the|these|those)\\s+(paper|document|article|pdf|file|text|book|section|chapter)s?\\b/iu', ' ', $question);
+
+        return (bool) preg_match(
+            '/\\b(it|its|they|them|their|this|that|these|those|he|she|his|her|former|latter|above|previous|earlier)\\b'
+            . '|^\\s*(and|but|so|then|what about|how about)\\b'
+            . '|\\b(آن|این|همین|آنها|او|قبلی|بالا|دیگر)\\b/iu',
+            (string) $q
         );
     }
 

@@ -24,7 +24,7 @@ return [
     'ollama' => [
         'url' => env('OLLAMA_URL', 'http://localhost:11434'),
         'model' => env('OLLAMA_MODEL', 'qwen2.5:7b'),
-        'timeout' => (int) env('OLLAMA_TIMEOUT', 280),
+        'timeout' => (int) env('OLLAMA_TIMEOUT', 420),   // CPU-only 7B models: one call can exceed 280 s
         'num_ctx' => (int) env('OLLAMA_NUM_CTX', 8192),
         'num_predict' => (int) env('OLLAMA_NUM_PREDICT', 512),
         'keep_alive' => env('OLLAMA_KEEP_ALIVE', '10m'),

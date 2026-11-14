@@ -34,6 +34,7 @@ from app.task_queue import (
     FAILURE_TTL,
     JOB_TIMEOUT,
     RESULT_TTL,
+    entities_queue,
     entity_cancel_key,
     entity_job_key,
     queue,
@@ -259,6 +260,91 @@ def job_status(job_id: str):
         lines = (job.exc_info or "").strip().splitlines()
         body["error"] = lines[-1] if lines else "Job failed"
     return body
+
+
+# ============================================================
+# GET /health  (monitoring, FR-12)
+# ============================================================
+
+@app.get("/health", dependencies=[Depends(require_api_key)])
+def health():
+    """Is every moving part up and sane? One call: Redis + queues + workers, Qdrant, Neo4j,
+    Ollama. `status` is "degraded" when something needs attention; `warnings` says what."""
+    report = {"status": "ok", "components": {}, "warnings": []}
+    comp = report["components"]
+
+    def fail(name: str, error: Exception) -> None:
+        comp[name] = {"ok": False, "error": str(error)[:200]}
+        report["status"] = "degraded"
+
+    def warn(message: str) -> None:
+        report["warnings"].append(message)
+        report["status"] = "degraded"
+
+    try:
+        redis_conn.ping()
+        from rq import Worker
+        from rq.registry import FailedJobRegistry
+
+        listening = [n for w in Worker.all(connection=redis_conn) for n in w.queue_names()]
+        ingest_workers = listening.count(queue.name)
+        entity_workers = listening.count(entities_queue.name)
+        comp["redis"] = {
+            "ok": True,
+            "queues": {
+                "ingestion": {
+                    "waiting": queue.count,
+                    "failed": FailedJobRegistry(queue=queue).count,
+                },
+                "entities": {
+                    "waiting": entities_queue.count,
+                    "failed": FailedJobRegistry(queue=entities_queue).count,
+                },
+            },
+            "workers": {"ingestion": ingest_workers, "entities": entity_workers},
+        }
+        if ingest_workers == 0:
+            warn("No ingestion worker is running: uploads will wait forever (python -m app.worker)")
+        elif ingest_workers > 1:
+            warn(f"{ingest_workers} ingestion workers are running; expected exactly 1 "
+                 "(stale workers run old code and can pick up jobs)")
+        if entity_workers == 0 and entities_queue.count:
+            warn(f"{entities_queue.count} entity job(s) are waiting but no entity worker is "
+                 "running (python -m app.worker --entities)")
+    except Exception as e:
+        fail("redis", e)
+
+    try:
+        from app.services import embedding_service as emb
+
+        names = [c.name for c in emb.client.get_collections().collections]
+        points = (
+            emb.client.count(collection_name=emb.COLLECTION_NAME, exact=False).count
+            if emb.COLLECTION_NAME in names
+            else 0  # created on the first upload
+        )
+        comp["qdrant"] = {"ok": True, "points": points}
+    except Exception as e:
+        fail("qdrant", e)
+
+    try:
+        from app.services.graph_service import get_graph_stats
+
+        comp["neo4j"] = {"ok": True, "nodes": get_graph_stats()["total"]}
+    except Exception as e:
+        fail("neo4j", e)
+
+    try:
+        from app.services import llm_service
+
+        problem = llm_service.check_model()
+        comp["ollama"] = {"ok": problem is None, "model": llm_service.OLLAMA_MODEL}
+        if problem:
+            warn(problem)
+    except Exception as e:
+        fail("ollama", e)
+
+    return report
 
 
 # ============================================================

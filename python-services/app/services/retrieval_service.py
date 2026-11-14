@@ -27,7 +27,13 @@ BIBLIOGRAPHY_PENALTY = float(os.getenv("RETRIEVAL_BIBLIOGRAPHY_PENALTY", 0.5))
 # Drop demoted chunks entirely once a document has at least this many real ones.
 MIN_REAL_EVIDENCE = int(os.getenv("RETRIEVAL_MIN_REAL_EVIDENCE", 3))
 
-_BIB_HEADINGS = ("reference", "bibliograph", "works cited", "منابع", "مراجع", "کتابنامه")
+# The WHOLE heading must be a reference-list title. (A prefix match would wrongly flag a real
+# section such as "1. Reference Counting:".)
+_BIB_TITLE = re.compile(
+    r"^(?:references?|reference list|bibliography|works cited|literature cited|"
+    r"منابع|مراجع|فهرست منابع|کتابنامه)\s*[:.]?$",
+    re.IGNORECASE,
+)
 _BIB_LINE = re.compile(r"^\s*(?:[-*\u2022]\s*)?\[\d{1,3}\]\s", re.MULTILINE)
 _ASKS_ABOUT_REFS = re.compile(r"referenc|citation|cited|bibliograph|منبع|منابع|مرجع|مراجع|ارجاع", re.IGNORECASE)
 
@@ -36,8 +42,8 @@ def is_bibliography(headings: Optional[List[str]], text: Optional[str]) -> bool:
     """True for a reference-list chunk. Checks the section title and, because neighbour
     chunks carry no headings, also the text: most lines look like "[12] Author, ..."."""
     last = (headings[-1] if headings else "") or ""
-    last = re.sub(r"^[\d.\s]+", "", last.lower())
-    if any(last.startswith(k) for k in _BIB_HEADINGS):
+    last = re.sub(r"^[\d.\s]+", "", last).strip()
+    if _BIB_TITLE.match(last):
         return True
     lines = [ln for ln in (text or "").splitlines() if ln.strip()]
     return len(lines) >= 2 and len(_BIB_LINE.findall(text or "")) / len(lines) >= 0.6
