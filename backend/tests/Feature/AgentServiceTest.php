@@ -399,7 +399,8 @@ class AgentServiceTest extends TestCase
         $items = [];
         foreach ([1, 2, 3, 4, 5] as $doc) {
             for ($i = 0; $i < 6; $i++) {
-                $items[] = $this->evidence($doc, $i, str_repeat('word ', 200), 0.9 - $i * 0.05 - $doc * 0.001);
+                // Unique text per passage: identical texts would (correctly) be merged by de-duplication.
+                $items[] = $this->evidence($doc, $i, 'Document ' . $doc . ' passage ' . $i . ' ' . str_repeat('word ', 200), 0.9 - $i * 0.05 - $doc * 0.001);
             }
         }
 
@@ -592,5 +593,32 @@ class AgentServiceTest extends TestCase
         ]);
 
         $this->assertSame(1, $this->chatCalls());
+    }
+
+    public function test_identical_passages_in_several_documents_are_sent_only_once(): void
+    {
+        // The same notes uploaded as three documents: 3 passages x 3 copies = 9 candidates, 3 unique texts.
+        $items = [];
+        foreach ([1, 2, 3] as $doc) {
+            foreach ([0, 1, 2] as $i) {
+                $items[] = $this->evidence($doc, $i, 'Passage number ' . $i . ' of the shared notes.', 0.9 - $i * 0.05 - $doc * 0.001);
+            }
+        }
+
+        Http::fake([
+            'rag.test/retrieve' => Http::response(['evidence' => $items]),
+            'rag.test/verify' => Http::response([
+                'answer' => 'A [S1].', 'cited_sids' => ['S1'], 'unverified_figures' => [], 'warnings' => [],
+            ]),
+            'ollama.test/api/chat' => Http::sequence()
+                ->push($this->chat('{"sub_questions":[{"q":"notes","document_ids":[1,2,3]}]}'))
+                ->push($this->chat('{"sufficient":true}'))
+                ->push($this->chat('A [S1].')),
+        ]);
+
+        $result = app(AgentService::class)->answer('Tell me about the notes', [1, 2, 3]);
+
+        $synth = collect($result['trace'])->firstWhere('step', 'synthesize');
+        $this->assertSame(3, $synth['sources_in_context']);
     }
 }

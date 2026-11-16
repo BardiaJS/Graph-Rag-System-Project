@@ -346,6 +346,74 @@ class DocumentController extends Controller
         ]);
     }
 
+    /**
+     * Figures extracted from a document (label, caption, page) with URLs on THIS app.
+     * GET /api/documents/{document}/figures
+     */
+    public function figures(Document $document, GraphRagClient $rag)
+    {
+        if ($denied = $this->denyUnlessOwner($document)) {
+            return $denied;
+        }
+
+        try {
+            $figures = $rag->listFigures((int) $document->id);
+        } catch (GraphRagException $e) {
+            report($e);
+
+            return response()->json(['message' => 'Figures are temporarily unavailable.'], 503);
+        }
+
+        $figures = array_map(fn ($f) => array_merge($f, [
+            'image_url' => '/api/documents/' . $document->id . '/figures/' . $f['figure_index'] . '/image',
+        ]), $figures);
+
+        return response()->json(['figures' => $figures, 'total' => count($figures)]);
+    }
+
+    /**
+     * The figure PNG, after an ownership check. GET /api/documents/{document}/figures/{index}/image
+     * NOTE for the frontend: an <img src> tag cannot send the Authorization header, so fetch the
+     * image with fetch() and the bearer token, then show it from a blob URL.
+     */
+    public function figureImage(Document $document, int $index, GraphRagClient $rag)
+    {
+        if ($denied = $this->denyUnlessOwner($document)) {
+            return $denied;
+        }
+
+        try {
+            $png = $rag->figureImage((int) $document->id, $index);
+        } catch (GraphRagException $e) {
+            return response()->json(
+                ['message' => 'Figure not found.'],
+                $e->getCode() === 404 ? 404 : 503
+            );
+        }
+
+        return response($png, 200, [
+            'Content-Type' => 'image/png',
+            'Cache-Control' => 'private, max-age=3600',
+        ]);
+    }
+
+    /** Null when the signed-in user owns the document's session, otherwise the error response. */
+    private function denyUnlessOwner(Document $document)
+    {
+        $user = Auth::user();
+
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+
+        $session = ChatSession::find($document->chat_session_id);
+        if (!$session || $session->user_id !== $user->id) {
+            return response()->json(['message' => 'You do not have access to this document'], 403);
+        }
+
+        return null;
+    }
+
     // NOTE: the old webhook() method that lived here was a duplicate of
     // WebhookController::handle() and had no route. It was removed so there is a
     // single, authenticated place that handles Python callbacks.

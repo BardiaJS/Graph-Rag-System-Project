@@ -51,7 +51,9 @@ Route::get('/users/{user}' , [AdminController::class, 'get_user'])->middleware('
 Route::post('/users/{user}' , [AdminController::class , 'ban_user'])->middleware('auth:sanctum','not.banned');
 Route::post('/unban/users/{user}' , [AdminController::class , 'unban_user'])->middleware('auth:sanctum','not.banned');
 
+Route::get('/documents/{document}/figures', [DocumentController::class, 'figures'])->middleware('auth:sanctum','not.banned');
 
+Route::get('/documents/{document}/figures/{index}/image', [DocumentController::class, 'figureImage'])->middleware('auth:sanctum','not.banned')->whereNumber('index');
 
 
 

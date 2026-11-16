@@ -109,7 +109,7 @@ class AgenticAnswerJob implements ShouldQueue
                 // new
                 'id' => $c['id'] ?? null,
                 'document_id' => $c['document_id'] ?? null,
-                'figures' => $c['figures'] ?? [],
+                'figures' => $this->publicFigures($c['figures'] ?? []),
                 'linked_via' => $c['linked_via'] ?? [],
             ], $result['citations']);
 
@@ -146,6 +146,17 @@ class AgenticAnswerJob implements ShouldQueue
 
             throw $e;
         }
+    }
+
+    /**
+     * The Python service is internal. Point figure images at THIS app's authenticated route
+     * (GET /api/documents/{document}/figures/{index}/image) so the frontend can fetch them.
+     */
+    protected function publicFigures(array $figures): array
+    {
+        return array_map(fn ($f) => array_merge($f, [
+            'image_url' => '/api/documents/' . $f['document_id'] . '/figures/' . $f['figure_index'] . '/image',
+        ]), $figures);
     }
 
     /**

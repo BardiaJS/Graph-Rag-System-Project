@@ -430,12 +430,33 @@ TXT;
             }
         }
 
-        $chosen = $this->fitBudget($chosen);
+        $chosen = $this->fitBudget($this->dedupe($chosen));
 
         usort($chosen, fn ($a, $b) => [$a['document_id'], $a['chunk_index'] ?? 0]
             <=> [$b['document_id'], $b['chunk_index'] ?? 0]);
 
         return array_values($chosen);
+    }
+
+    /**
+     * The same PDF uploaded twice (or two copies of the same notes) yields identical passages in
+     * several documents. Sending each copy wastes prompt time and makes the model cite the same
+     * passage three times under different ids, so keep only the best-scoring copy of each text.
+     *
+     * @param  array<int, array<string, mixed>>  $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function dedupe(array $items): array
+    {
+        $best = [];
+        foreach ($items as $index => $e) {
+            $key = md5(mb_strtolower((string) preg_replace('/\\s+/u', ' ', trim((string) ($e['text'] ?? '')))));
+            if (!isset($best[$key]) || ($e['score'] ?? 0) > ($items[$best[$key]]['score'] ?? 0)) {
+                $best[$key] = $index;
+            }
+        }
+
+        return array_values(array_map(fn ($index) => $items[$index], $best));
     }
 
     /**
