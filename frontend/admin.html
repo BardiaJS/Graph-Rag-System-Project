@@ -727,7 +727,11 @@
         // ============================================================
         //  CONFIG
         // ============================================================
-        const API_URL = 'http://localhost:8000/api';
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>\"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]));
+        }
+
+        const API_URL = (localStorage.getItem('graph_rag_api_url') || 'http://localhost:8000/api').replace(/\/$/, '');
         const TOKEN = localStorage.getItem('api_token') || '';
 
         // ============================================================
@@ -745,6 +749,7 @@
             return {
                 'Authorization': `Bearer ${TOKEN}`,
                 'Content-Type': 'application/json',
+                    'Accept': 'application/json',
                 'Accept': 'application/json'
             };
         }
@@ -764,7 +769,7 @@
         document.getElementById('userNameDisplay').textContent = localStorage.getItem('user_name') || 'Admin';
 
         function logout() {
-            localStorage.clear();
+            ['api_token', 'user_name', 'user_email', 'user_id'].forEach(key => localStorage.removeItem(key));
             window.location.href = 'login.html';
         }
 
@@ -803,8 +808,9 @@
                 if (!res.ok) throw new Error('Failed to load users');
 
                 const data = await res.json();
-                const users = data.users?.data || data.users || [];
-                const pagination = data.users || { current_page: page, last_page: 1, total: 0 };
+                const usersPayload = data.users ?? data.data ?? [];
+                const users = usersPayload?.data || (Array.isArray(usersPayload) ? usersPayload : []);
+                const pagination = usersPayload?.data ? usersPayload : (data.pagination || { current_page: page, last_page: 1, total: users.length });
 
                 if (!users.length) {
                     container.innerHTML = `
@@ -847,11 +853,11 @@
                                     <td>
                                         <div style="display:flex;align-items:center;gap:10px;">
                                             <div class="user-avatar">${initials}</div>
-                                            <span>${user.name || 'Unknown'}</span>
+                                            <span>${escapeHtml(user.name || 'Unknown')}</span>
                                             ${user.id == localStorage.getItem('user_id') ? ' <span style="font-size:0.6rem;color:var(--primary-light);">(you)</span>' : ''}
                                         </div>
                                     </td>
-                                    <td class="desktop-only" style="color:rgba(255,255,255,0.5);font-size:0.85rem;">${user.email}</td>
+                                    <td class="desktop-only" style="color:rgba(255,255,255,0.5);font-size:0.85rem;">${escapeHtml(user.email || '')}</td>
                                     <td><span class="status-badge ${roleClass}">${roleText}</span></td>
                                     <td><span class="status-badge ${statusClass}">${statusText}</span></td>
                                     <td style="font-size:0.8rem;color:rgba(255,255,255,0.4);">${formatDate(user.created_at)}</td>
@@ -943,7 +949,7 @@
         async function banUser(userId) {
             if (!confirm(`Are you sure you want to BAN this user?`)) return;
 
-            const btn = event?.target?.closest?.('button');
+            const btn = null; // Avoid relying on the deprecated global event object.
             if (btn) {
                 btn.disabled = true;
                 btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>`;
@@ -1007,7 +1013,7 @@
         async function unbanUser(userId) {
             if (!confirm(`Are you sure you want to UNBAN this user?`)) return;
 
-            const btn = event?.target?.closest?.('button');
+            const btn = null; // Avoid relying on the deprecated global event object.
             if (btn) {
                 btn.disabled = true;
                 btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>`;

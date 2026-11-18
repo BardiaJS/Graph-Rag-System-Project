@@ -1,1 +1,16 @@
-python3 -m http.server 8080
+Graph-RAG frontend (patched)
+
+1. Keep Laravel running at http://localhost:8000.
+2. Open a terminal in this folder and run:
+   python3 -m http.server 5500
+3. Open http://localhost:5500/index.html in the browser.
+
+Default API base is http://localhost:8000/api.
+To override it, in browser DevTools Console run:
+localStorage.setItem('graph_rag_api_url', 'http://localhost:8000/api');
+Then reload the page. Remove the setting to return to default:
+localStorage.removeItem('graph_rag_api_url');
+
+Note: these are frontend-only changes. Live endpoint tests were not possible here.
+If Laravel CORS does not allow http://localhost:5500, that server-side CORS
+configuration must be changed; frontend JavaScript cannot bypass browser CORS.080

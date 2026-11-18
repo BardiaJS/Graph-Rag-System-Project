@@ -777,7 +777,11 @@
         // ============================================================
         //  CONFIG
         // ============================================================
-        const API_URL = 'http://localhost:8000/api';
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>\"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]));
+        }
+
+        const API_URL = (localStorage.getItem('graph_rag_api_url') || 'http://localhost:8000/api').replace(/\/$/, '');
         const TOKEN = localStorage.getItem('api_token') || '';
 
         // ============================================================
@@ -795,6 +799,7 @@
             return {
                 'Authorization': `Bearer ${TOKEN}`,
                 'Content-Type': 'application/json',
+                    'Accept': 'application/json',
                 'Accept': 'application/json'
             };
         }
@@ -817,7 +822,7 @@
         document.getElementById('userNameDisplay').textContent = localStorage.getItem('user_name') || 'User';
 
         function logout() {
-            localStorage.clear();
+            ['api_token', 'user_name', 'user_email', 'user_id'].forEach(key => localStorage.removeItem(key));
             window.location.href = 'login.html';
         }
 
@@ -854,7 +859,9 @@
                     `;
 
             try {
-                const res = await fetch(`${API_URL}/sessions/create/${localStorage.getItem('user_id') || 1}`, {
+                const userId = localStorage.getItem('user_id');
+                if (!userId) { showToast('Error', 'User ID missing. Please log out and log in again.', 'danger'); return; }
+                const res = await fetch(`${API_URL}/sessions/create/${encodeURIComponent(userId)}`, {
                     method: 'POST',
                     headers: getHeaders(),
                     body: JSON.stringify({ title, status: 'active' })
@@ -919,7 +926,7 @@
                 container.innerHTML = sessions.map(s => `
                             <div class="session-item" onclick="window.location.href='session.html?id=${s.id}'">
                                 <div>
-                                    <div class="session-title">${s.title || 'Untitled'}</div>
+                                    <div class="session-title">${escapeHtml(s.title || 'Untitled')}</div>
                                     <div class="session-meta">
                                         <span class="badge">${s.status || 'active'}</span>
                                         <span class="ms-2">${formatDate(s.created_at)}</span>
@@ -933,7 +940,7 @@
                                         </span>
                                     </button>
                                     <div class="session-actions">
-                                        <button class="btn-icon" onclick="event.stopPropagation(); editSession(${s.id}, '${s.title || ''}')">
+                                        <button class="btn-icon" onclick="event.stopPropagation(); editSession(${s.id}, this.dataset.sessionTitle)" data-session-title="${escapeHtml(s.title || '')}">
                                             <i class="fas fa-edit"></i>
                                         </button>
                                         <button class="btn-icon danger" onclick="event.stopPropagation(); deleteSession(${s.id})">

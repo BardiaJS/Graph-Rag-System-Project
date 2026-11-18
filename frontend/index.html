@@ -39,10 +39,11 @@
         const token = localStorage.getItem('api_token');
 
         if (token) {
-            fetch('http://localhost:8000/api/user', {
+            fetch(`${(localStorage.getItem('graph_rag_api_url') || 'http://localhost:8000/api').replace(/\/$/, '')}/user`, {
                 headers: {
                     'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
                 }
             })
             .then(res => {
@@ -53,9 +54,10 @@
                 return res.json();
             })
             .then(data => {
-                if (data && data.role === 'admin') {
+                const user = data?.user || data?.data?.user || data?.data || data;
+                if (user && user.role === 'admin') {
                     window.location.href = 'admin.html';
-                } else if (data) {
+                } else if (user) {
                     window.location.href = 'dashboard.html';
                 } else {
                     window.location.href = 'login.html';

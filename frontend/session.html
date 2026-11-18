@@ -1138,7 +1138,7 @@
         // ============================================================
         //  CONFIG
         // ============================================================
-        const API_URL = 'http://localhost:8000/api';
+        const API_URL = (localStorage.getItem('graph_rag_api_url') || 'http://localhost:8000/api').replace(/\/$/, '');
         const SESSION_ID = parseInt(new URLSearchParams(window.location.search).get('id')) || 1;
         const TOKEN = localStorage.getItem('api_token') || '';
 
@@ -1157,6 +1157,7 @@
             return {
                 'Authorization': `Bearer ${TOKEN}`,
                 'Content-Type': 'application/json',
+                    'Accept': 'application/json',
                 'Accept': 'application/json'
             };
         }
@@ -1183,7 +1184,7 @@
         document.getElementById('userNameDisplay').textContent = localStorage.getItem('user_name') || 'User';
 
         function logout() {
-            localStorage.clear();
+            ['api_token', 'user_name', 'user_email', 'user_id'].forEach(key => localStorage.removeItem(key));
             window.location.href = 'login.html';
         }
 
@@ -1231,7 +1232,7 @@
                                 <div class="doc-info">
                                     <div class="doc-name">
                                         <i class="fas fa-file-pdf me-1" style="color: #ef4444;"></i>
-                                        ${d.original_name || d.name || 'Untitled'}
+                                        ${escapeHtml(d.original_name || d.name || 'Untitled')}
                                     </div>
                                     <div class="doc-meta">
                                         📄 ${d.page_count || 0} pages • ${formatSize(d.file_size || 0)}
@@ -1332,7 +1333,7 @@
             container.innerHTML = selectedFiles.map((f, i) => `
                         <div class="file-item">
                             <div>
-                                <span>${f.name}</span>
+                                <span>${escapeHtml(f.name)}</span>
                                 <span class="text-muted ms-1">${formatSize(f.size)}</span>
                             </div>
                             <button class="remove-file" onclick="removeFile(${i})"><i class="fas fa-times"></i></button>
@@ -1348,6 +1349,7 @@
 
         document.getElementById('uploadBtn').addEventListener('click', async function() {
             if (!selectedFiles.length) return;
+            if (!localStorage.getItem('user_id')) { showToast('Error', 'User ID missing. Please log out and log in again.', 'danger'); return; }
             const btn = this;
             const progress = document.getElementById('uploadProgress');
             const bar = progress.querySelector('.progress-bar');
@@ -1369,7 +1371,7 @@
 
             try {
                 const res = await fetch(
-                    `${API_URL}/documents/upload/sessions/${SESSION_ID}/users/${localStorage.getItem('user_id') || 1}`,
+                    `${API_URL}/documents/upload/sessions/${SESSION_ID}/users/${encodeURIComponent(localStorage.getItem('user_id') || '')}`,
                     {
                         method: 'POST',
                         headers: { 'Authorization': `Bearer ${TOKEN}` },
@@ -1408,11 +1410,17 @@
         let currentQId = null;
         let pollInterval = null;
         let typingMessage = null;
+        let pollAttempts = 0;
+        const MAX_POLL_ATTEMPTS = 240; // up to 12 minutes at 3-second intervals
 
         document.getElementById('askBtn').addEventListener('click', askQuestion);
         document.getElementById('questionInput').addEventListener('keypress', e => { if (e.key === 'Enter') askQuestion(); });
 
         function setQuestion(text) { document.getElementById('questionInput').value = text; }
+
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>\"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]));
+        }
 
         function addMessage(role, content, isTyping = false) {
             const container = document.getElementById('chatMessages');
@@ -1425,7 +1433,7 @@
                 msg.innerHTML = `<div class="bubble"><div class="typing-indicator"><span></span><span></span><span></span></div></div>`;
                 typingMessage = msg;
             } else {
-                msg.innerHTML = `<div class="bubble">${String(content).replace(/\n/g, '<br>')}</div>`;
+                msg.innerHTML = `<div class="bubble">${escapeHtml(String(content)).replace(/\n/g, '<br>')}</div>`;
             }
             container.appendChild(msg);
             container.scrollTop = container.scrollHeight;
@@ -1468,6 +1476,7 @@
                     return;
                 }
                 currentQId = data.question_id;
+                pollAttempts = 0;
                 if (pollInterval) clearInterval(pollInterval);
                 pollInterval = setInterval(checkStatus, 3000);
             } catch (e) {
@@ -1479,10 +1488,15 @@
 
         async function checkStatus() {
             if (!currentQId) return;
+            if (++pollAttempts >= MAX_POLL_ATTEMPTS) {
+                clearInterval(pollInterval); pollInterval = null; removeTyping();
+                addMessage('assistant', 'Request timed out while waiting for the backend. Check the question status and try again.');
+                currentQId = null; updateStatus('● Ready', true); return;
+            }
             try {
                 const res = await fetch(`${API_URL}/questions/${currentQId}/status`, { headers: getHeaders() });
                 const data = await res.json();
-                if (data.is_completed) {
+                if (data.is_completed || ['failed', 'error', 'completed', 'complete'].includes(String(data.status || '').toLowerCase())) {
                     clearInterval(pollInterval);
                     pollInterval = null;
                     await getResult();
@@ -1499,12 +1513,15 @@
                 removeTyping();
 
                 if (data.answer) {
-                    let srcHtml = '';
-                    if (data.sources && data.sources.length) {
-                        srcHtml =
-                            `<div class="sources" onclick="showSources(${JSON.stringify(data.sources).replace(/"/g,'&quot;')})">📚 ${data.sources.length} sources</div>`;
+                    addMessage('assistant', data.answer);
+                    if (Array.isArray(data.sources) && data.sources.length) {
+                        const sourceButton = document.createElement('button');
+                        sourceButton.className = 'btn btn-sm btn-outline-light mt-2';
+                        sourceButton.textContent = `📚 ${data.sources.length} sources`;
+                        sourceButton.addEventListener('click', () => showSources(data.sources));
+                        const last = document.querySelector('#chatMessages .message.assistant:last-child .bubble');
+                        if (last) last.appendChild(sourceButton);
                     }
-                    addMessage('assistant', data.answer + srcHtml);
                     loadHistory();
                 } else if (data.status === 'failed') {
                     addMessage('assistant', `❌ Error: ${data.error || 'No response received'}`);
@@ -1522,7 +1539,7 @@
 
         function showSources(sources) {
             let html = '<div class="p-2">📚 <strong>Sources:</strong><ul class="mb-0 mt-1">';
-            sources.forEach(s => html += `<li class="small" style="color:rgba(255,255,255,0.5);">Document ${s.document_id}</li>`);
+            sources.forEach(s => html += `<li class="small" style="color:rgba(255,255,255,0.5);">Document ${escapeHtml(s.document_id ?? 'unknown')}${s.page ? `, page ${escapeHtml(s.page)}` : ''}</li>`);
             html += '</ul></div>';
             showToast('Sources', html, 'info');
         }
@@ -1545,7 +1562,7 @@
 
                 container.innerHTML = questions.map(q => `
                             <div class="history-item">
-                                <span class="h-question">${q.content}</span>
+                                <span class="h-question">${escapeHtml(q.content || '')}</span>
                                 <span class="h-time">${formatDate(q.created_at)}</span>
                             </div>
                         `).join('');

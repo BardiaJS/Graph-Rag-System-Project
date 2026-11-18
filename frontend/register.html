@@ -503,16 +503,17 @@
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Signing up...';
 
             try {
-                const response = await fetch('http://localhost:8000/api/users/register', {
+                const response = await fetch(`${(localStorage.getItem('graph_rag_api_url') || 'http://localhost:8000/api').replace(/\/$/, '')}/users/register`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json',
+                    'Accept': 'application/json' },
                     body: JSON.stringify({ name, email, password })
                 });
 
                 const data = await response.json();
 
                 if (response.ok) {
-                    const token = data.token;
+                    const token = data.token || data.access_token || data.data?.token || data.data?.access_token;
 
                     if (!token) {
                         showAlert('❌ No token received from server.', 'danger');
@@ -524,7 +525,8 @@
                     localStorage.setItem('api_token', token);
                     localStorage.setItem('user_name', data.user?.name || name);
                     localStorage.setItem('user_email', data.user?.email || email);
-                    localStorage.setItem('user_id', data.user?.id || 1);
+                    if (data.user?.id ?? data.id ?? data.data?.user?.id) localStorage.setItem('user_id', data.user?.id ?? data.id ?? data.data?.user?.id);
+                    else localStorage.removeItem('user_id');
 
                     showAlert('✅ Registration successful! Redirecting...', 'success');
                     setTimeout(() => {

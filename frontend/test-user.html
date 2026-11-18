@@ -52,10 +52,11 @@
             result.innerHTML = '<p>⏳ در حال دریافت اطلاعات...</p>';
 
             try {
-                const res = await fetch('http://localhost:8000/api/user', {
+                const res = await fetch(`${(localStorage.getItem('graph_rag_api_url') || 'http://localhost:8000/api').replace(/\/$/, '')}/user`, {
                     headers: {
                         'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                    'Accept': 'application/json'
                     }
                 });
 
