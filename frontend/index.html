@@ -37,9 +37,16 @@
 
     <script>
         const token = localStorage.getItem('api_token');
+        const API_URL = (localStorage.getItem('graph_rag_api_url') || ((location.hostname === 'localhost' && location.port === '8000') ? `${location.origin}/api` : 'http://localhost:8000/api')).replace(/\/$/, '');
+        async function parseResponse(response) {
+            const text = await response.text();
+            if (!text) return {};
+            try { return JSON.parse(text); } catch { return { message: text.slice(0, 500) }; }
+        }
+        function unwrap(data) { return data?.data ?? data; }
 
         if (token) {
-            fetch(`${(localStorage.getItem('graph_rag_api_url') || 'http://localhost:8000/api').replace(/\/$/, '')}/user`, {
+            fetch(`${API_URL}/user`, {
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json',
@@ -51,13 +58,14 @@
                     window.location.href = 'login.html';
                     return;
                 }
-                return res.json();
+                return parseResponse(res);
             })
             .then(data => {
-                const user = data?.user || data?.data?.user || data?.data || data;
+                const payload = unwrap(data);
+                const user = payload?.user || payload?.data?.user || payload;
                 if (user && user.role === 'admin') {
                     window.location.href = 'admin.html';
-                } else if (user) {
+                } else if (user && user.id) {
                     window.location.href = 'dashboard.html';
                 } else {
                     window.location.href = 'login.html';

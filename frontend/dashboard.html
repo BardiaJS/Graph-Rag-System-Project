@@ -781,8 +781,23 @@
             return String(value ?? '').replace(/[&<>\"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]));
         }
 
-        const API_URL = (localStorage.getItem('graph_rag_api_url') || 'http://localhost:8000/api').replace(/\/$/, '');
+        const API_URL = (localStorage.getItem('graph_rag_api_url') || ((location.hostname === 'localhost' && location.port === '8000') ? `${location.origin}/api` : 'http://localhost:8000/api')).replace(/\/$/, '');
         const TOKEN = localStorage.getItem('api_token') || '';
+
+        async function parseResponse(response) {
+            const text = await response.text();
+            if (!text) return {};
+            try { return JSON.parse(text); }
+            catch { return { message: text.slice(0, 500) || `HTTP ${response.status}` }; }
+        }
+        function payloadOf(data) { return data?.data ?? data; }
+        function errorMessage(data, fallback = 'Request failed') {
+            const payload = payloadOf(data);
+            if (payload?.message) return payload.message;
+            if (data?.errors) return Object.values(data.errors).flat().join(' ');
+            return fallback;
+        }
+
 
         // ============================================================
         //  HELPERS
@@ -799,7 +814,6 @@
             return {
                 'Authorization': `Bearer ${TOKEN}`,
                 'Content-Type': 'application/json',
-                    'Accept': 'application/json',
                 'Accept': 'application/json'
             };
         }
@@ -861,19 +875,19 @@
             try {
                 const userId = localStorage.getItem('user_id');
                 if (!userId) { showToast('Error', 'User ID missing. Please log out and log in again.', 'danger'); return; }
-                const res = await fetch(`${API_URL}/sessions/create/${encodeURIComponent(userId)}`, {
+                const res = await fetch(`${API_URL}/sessions/users/${encodeURIComponent(userId)}`, {
                     method: 'POST',
                     headers: getHeaders(),
                     body: JSON.stringify({ title, status: 'active' })
                 });
-                const data = await res.json();
+                const data = await parseResponse(res);
                 if (res.ok) {
                     showToast('Success', 'New session created!', 'success');
                     document.getElementById('newSessionForm').classList.remove('show');
                     document.getElementById('newSessionTitle').value = '';
                     await loadSessions();
                 } else {
-                    showToast('Error', data.message || 'Failed to create session.', 'danger');
+                    showToast('Error', errorMessage(data, 'Failed to create session.'), 'danger');
                 }
             } catch (e) {
                 showToast('Error', 'Server connection error.', 'danger');
@@ -899,7 +913,7 @@
                     headers: getHeaders()
                 });
                 if (!res.ok) throw new Error('Failed to load sessions');
-                const data = await res.json();
+                const data = await parseResponse(res);
                 const sessions = data.sessions || data.data || [];
 
                 if (!sessions.length) {
@@ -967,7 +981,7 @@
             const newTitle = prompt('Enter new session title:', title);
             if (!newTitle || newTitle === title) return;
 
-            fetch(`${API_URL}/sessions/${id}/update`, {
+            fetch(`${API_URL}/sessions/${id}/`, {
                     method: 'PATCH',
                     headers: getHeaders(),
                     body: JSON.stringify({ title: newTitle })
@@ -977,7 +991,7 @@
                         showToast('Success', 'Session updated!', 'success');
                         loadSessions();
                     } else {
-                        res.json().then(data => showToast('Error', data.message || 'Update failed.', 'danger'));
+                        parseResponse(res).then(data => showToast('Error', errorMessage(data, 'Update failed.'), 'danger'));
                     }
                 })
                 .catch(() => showToast('Error', 'Server connection error.', 'danger'));
@@ -988,7 +1002,7 @@
             if (!confirm(`Are you sure you want to delete this session?`)) return;
 
             try {
-                const res = await fetch(`${API_URL}/sessions/${id}/delete`, {
+                const res = await fetch(`${API_URL}/sessions/${id}/`, {
                     method: 'DELETE',
                     headers: getHeaders()
                 });
@@ -996,8 +1010,8 @@
                     showToast('Success', 'Session deleted.', 'success');
                     loadSessions();
                 } else {
-                    const data = await res.json();
-                    showToast('Error', data.message || 'Delete failed.', 'danger');
+                    const data = await parseResponse(res);
+                    showToast('Error', errorMessage(data, 'Delete failed.'), 'danger');
                 }
             } catch (e) {
                 showToast('Error', 'Server connection error.', 'danger');

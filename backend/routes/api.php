@@ -27,7 +27,7 @@ Route::get('/user', function (Request $request) {
 Route::post('/sessions/users/{user}' , [SessionController::class , 'create_session'])->middleware('auth:sanctum' ,'not.banned');
 Route::delete('sessions/{session}/' , [SessionController::class, 'delete_session'])->middleware('auth:sanctum','not.banned');
 Route::patch('sessions/{session}/' , [SessionController::class, 'update_session'])->middleware('auth:sanctum','not.banned');
-Route::get('/sessions/{sessions}'  ,[SessionController::class, 'get_session'])->middleware('auth:sanctum','not.banned');
+Route::get('/sessions/{session}', [SessionController::class, 'get_session'])->middleware('auth:sanctum', 'not.banned');
 Route::get('/sessions'  ,[SessionController::class, 'sessions'])->middleware('auth:sanctum','not.banned');
 Route::get('/session/{session}/question' , [SessionController::class , 'get_questions_in_the_session'])->middleware('auth:sanctum' , 'not.banned');
 Route::get('/session/{session}/history' , [SessionController::class , 'history'])->middleware('auth:sanctum' , 'not.banned');

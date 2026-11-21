@@ -731,8 +731,23 @@
             return String(value ?? '').replace(/[&<>\"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]));
         }
 
-        const API_URL = (localStorage.getItem('graph_rag_api_url') || 'http://localhost:8000/api').replace(/\/$/, '');
+        const API_URL = (localStorage.getItem('graph_rag_api_url') || ((location.hostname === 'localhost' && location.port === '8000') ? `${location.origin}/api` : 'http://localhost:8000/api')).replace(/\/$/, '');
         const TOKEN = localStorage.getItem('api_token') || '';
+
+        async function parseResponse(response) {
+            const text = await response.text();
+            if (!text) return {};
+            try { return JSON.parse(text); }
+            catch { return { message: text.slice(0, 500) || `HTTP ${response.status}` }; }
+        }
+        function payloadOf(data) { return data?.data ?? data; }
+        function errorMessage(data, fallback = 'Request failed') {
+            const payload = payloadOf(data);
+            if (payload?.message) return payload.message;
+            if (data?.errors) return Object.values(data.errors).flat().join(' ');
+            return fallback;
+        }
+
 
         // ============================================================
         //  HELPERS
@@ -749,7 +764,6 @@
             return {
                 'Authorization': `Bearer ${TOKEN}`,
                 'Content-Type': 'application/json',
-                    'Accept': 'application/json',
                 'Accept': 'application/json'
             };
         }
@@ -807,10 +821,13 @@
 
                 if (!res.ok) throw new Error('Failed to load users');
 
-                const data = await res.json();
-                const usersPayload = data.users ?? data.data ?? [];
-                const users = usersPayload?.data || (Array.isArray(usersPayload) ? usersPayload : []);
-                const pagination = usersPayload?.data ? usersPayload : (data.pagination || { current_page: page, last_page: 1, total: users.length });
+                const data = await parseResponse(res);
+                const payload = payloadOf(data);
+                const usersPayload = payload?.users ?? payload?.data ?? data?.users ?? data?.data ?? [];
+                const users = Array.isArray(usersPayload) ? usersPayload : (usersPayload?.data || []);
+                const pagination = (!Array.isArray(usersPayload) && usersPayload?.data)
+                    ? usersPayload
+                    : (payload?.pagination || data?.pagination || { current_page: page, last_page: 1, total: users.length });
 
                 if (!users.length) {
                     container.innerHTML = `
@@ -956,7 +973,7 @@
             }
 
             try {
-                const response = await fetch(`${API_URL}/ban/users/${userId}`, {
+                const response = await fetch(`${API_URL}/users/${userId}`, {
                     method: 'POST',
                     headers: getHeaders()
                 });
@@ -991,7 +1008,7 @@
                     // ===== رفرش صفحه =====
                     await loadUsers(currentPage);
                 } else {
-                    showToast('Error', data.message || 'Failed to ban user.', 'danger');
+                    showToast('Error', errorMessage(data, 'Failed to ban user.'), 'danger');
                 }
             } catch (error) {
                 console.error('❌ Error:', error);
@@ -1053,7 +1070,7 @@
                     showToast('Success', 'User has been unbanned.', 'success');
                     await loadUsers(currentPage);
                 } else {
-                    showToast('Error', data.message || 'Failed to unban user.', 'danger');
+                    showToast('Error', errorMessage(data, 'Failed to unban user.'), 'danger');
                 }
             } catch (error) {
                 console.error('❌ Error:', error);
@@ -1086,7 +1103,7 @@
                     return;
                 }
 
-                const data = await res.json();
+                const data = await parseResponse(res);
 
                 if (data.role !== 'admin') {
                     window.location.href = 'dashboard.html';

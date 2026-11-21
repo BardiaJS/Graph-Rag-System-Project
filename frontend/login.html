@@ -396,6 +396,12 @@
     </div>
 
     <script>
+        async function parseResponse(response) {
+            const text = await response.text();
+            if (!text) return {};
+            try { return JSON.parse(text); } catch { return { message: text.slice(0, 500) }; }
+        }
+        function payloadOf(data) { return data?.data ?? data; }
         // ============================================================
         //  توابع مربوط به Specular Button
         // ============================================================
@@ -450,11 +456,15 @@
             }
         }
 
+        function escapeHtml(value) {
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+            return String(value ?? '').replace(/[&<>"']/g, ch => map[ch]);
+        }
         function showAlert(message, type) {
             const container = document.getElementById('alertContainer');
             container.innerHTML = `
                 <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-                    ${message}
+                    ${escapeHtml(message)}
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
             `;
@@ -499,17 +509,19 @@
             `;
 
             try {
-                const response = await fetch(`${(localStorage.getItem('graph_rag_api_url') || 'http://localhost:8000/api').replace(/\/$/, '')}/users/login`, {
+                const response = await fetch(`${(localStorage.getItem('graph_rag_api_url') || ((location.hostname === 'localhost' && location.port === '8000') ? `${location.origin}/api` : 'http://localhost:8000/api')).replace(/\/$/, '')}/users`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json',
                     'Accept': 'application/json' },
                     body: JSON.stringify({ email, password })
                 });
 
-                const data = await response.json();
+                const data = await parseResponse(response);
 
                 if (response.ok) {
-                    const token = data.token || data.access_token || data.data?.token || data.data?.access_token;
+                    const payload = payloadOf(data);
+                    const user = payload?.user || payload?.data?.user || payload?.data || data?.user || {};
+                    const token = payload?.token || payload?.access_token || payload?.data?.token || payload?.data?.access_token || data?.token || data?.access_token;
 
                     if (!token) {
                         showAlert('❌ No token received from server.', 'danger');
@@ -523,9 +535,10 @@
                     }
 
                     localStorage.setItem('api_token', token);
-                    localStorage.setItem('user_name', data.user?.name || data.name || 'User');
-                    localStorage.setItem('user_email', data.user?.email || data.email || '');
-                    if (data.user?.id ?? data.id ?? data.data?.user?.id) localStorage.setItem('user_id', data.user?.id ?? data.id ?? data.data?.user?.id);
+                    localStorage.setItem('user_name', user?.name || data.user?.name || data.name || 'User');
+                    localStorage.setItem('user_email', user?.email || data.user?.email || data.email || '');
+                    const userId = user?.id ?? data.user?.id ?? data.id ?? data.data?.user?.id;
+                    if (userId != null) localStorage.setItem('user_id', String(userId));
                     else localStorage.removeItem('user_id');
 
                     // Token is stored locally; do not print credentials to the console.

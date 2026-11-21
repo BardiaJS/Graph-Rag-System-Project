@@ -1138,9 +1138,28 @@
         // ============================================================
         //  CONFIG
         // ============================================================
-        const API_URL = (localStorage.getItem('graph_rag_api_url') || 'http://localhost:8000/api').replace(/\/$/, '');
-        const SESSION_ID = parseInt(new URLSearchParams(window.location.search).get('id')) || 1;
+        const API_URL = (localStorage.getItem('graph_rag_api_url') || ((location.hostname === 'localhost' && location.port === '8000') ? `${location.origin}/api` : 'http://localhost:8000/api')).replace(/\/$/, '');
+        const rawSessionId = new URLSearchParams(window.location.search).get('id');
+        const SESSION_ID = Number.parseInt(rawSessionId, 10);
+        if (!Number.isInteger(SESSION_ID) || SESSION_ID < 1) {
+            window.location.replace('dashboard.html');
+        }
         const TOKEN = localStorage.getItem('api_token') || '';
+
+        async function parseResponse(response) {
+            const text = await response.text();
+            if (!text) return {};
+            try { return JSON.parse(text); }
+            catch { return { message: text.slice(0, 500) || `HTTP ${response.status}` }; }
+        }
+        function payloadOf(data) { return data?.data ?? data; }
+        function errorMessage(data, fallback = 'Request failed') {
+            const payload = payloadOf(data);
+            if (payload?.message) return payload.message;
+            if (data?.errors) return Object.values(data.errors).flat().join(' ');
+            return fallback;
+        }
+
 
         // ============================================================
         //  HELPERS
@@ -1157,7 +1176,6 @@
             return {
                 'Authorization': `Bearer ${TOKEN}`,
                 'Content-Type': 'application/json',
-                    'Accept': 'application/json',
                 'Accept': 'application/json'
             };
         }
@@ -1196,8 +1214,9 @@
                 const res = await fetch(`${API_URL}/sessions/${SESSION_ID}`, {
                     headers: getHeaders()
                 });
-                const data = await res.json();
-                const session = data.session || data;
+                const data = await parseResponse(res);
+                const payload = payloadOf(data);
+                const session = payload?.session || payload;
                 document.getElementById('sessionTitle').textContent = session.title || 'Untitled';
                 document.getElementById('sessionIdBadge').textContent = `ID: ${SESSION_ID}`;
             } catch (e) {
@@ -1214,8 +1233,10 @@
                 const res = await fetch(`${API_URL}/sessions/${SESSION_ID}/documents`, {
                     headers: getHeaders()
                 });
-                const data = await res.json();
-                const docs = data.documents || data.data || [];
+                const data = await parseResponse(res);
+                const payload = payloadOf(data);
+                const docsRaw = payload?.documents ?? payload?.data ?? data?.documents ?? data?.data ?? [];
+                const docs = Array.isArray(docsRaw) ? docsRaw : (docsRaw?.data || []);
 
                 if (!docs.length) {
                     container.innerHTML = `
@@ -1283,19 +1304,19 @@
             }
 
             try {
-                const res = await fetch(`${API_URL}/documents/${documentId}/delete`, {
+                const res = await fetch(`${API_URL}/documents/${documentId}/`, {
                     method: 'DELETE',
                     headers: getHeaders()
                 });
 
-                const data = await res.json();
+                const data = await parseResponse(res);
 
                 if (res.ok) {
                     showToast('Success', 'Document deleted successfully!', 'success');
                     await loadDocuments();
                     await loadHistory();
                 } else {
-                    showToast('Error', data.message || 'Failed to delete document.', 'danger');
+                    showToast('Error', errorMessage(data, 'Failed to delete document.'), 'danger');
                 }
             } catch (e) {
                 showToast('Error', 'Server connection error: ' + e.message, 'danger');
@@ -1371,14 +1392,14 @@
 
             try {
                 const res = await fetch(
-                    `${API_URL}/documents/upload/sessions/${SESSION_ID}/users/${encodeURIComponent(localStorage.getItem('user_id') || '')}`,
+                    `${API_URL}/documents/sessions/${SESSION_ID}/users/${encodeURIComponent(localStorage.getItem('user_id') || '')}`,
                     {
                         method: 'POST',
                         headers: { 'Authorization': `Bearer ${TOKEN}` },
                         body: formData
                     }
                 );
-                const data = await res.json();
+                const data = await parseResponse(res);
                 if (res.ok) {
                     showToast('Success', 'Files uploaded successfully!', 'success');
                     selectedFiles = [];
@@ -1388,7 +1409,7 @@
                     status.textContent = '✅ Complete';
                     loadDocuments();
                 } else {
-                    showToast('Error', data.message || 'Upload failed.', 'danger');
+                    showToast('Error', errorMessage(data, 'Upload failed.'), 'danger');
                     status.textContent = '❌ Error';
                 }
             } catch (e) {
@@ -1468,14 +1489,16 @@
                     headers: getHeaders(),
                     body: JSON.stringify({ content: q })
                 });
-                const data = await res.json();
+                const data = await parseResponse(res);
                 if (!res.ok) {
                     removeTyping();
                     addMessage('assistant', `❌ Error: ${data.message || 'Processing failed'}`);
                     updateStatus('● Ready', true);
                     return;
                 }
-                currentQId = data.question_id;
+                const payload = payloadOf(data);
+                currentQId = payload?.question_id ?? payload?.question?.id ?? data?.question_id;
+                if (!currentQId) { removeTyping(); addMessage('assistant', '❌ Backend accepted the request but returned no question ID.'); updateStatus('● Ready', true); return; }
                 pollAttempts = 0;
                 if (pollInterval) clearInterval(pollInterval);
                 pollInterval = setInterval(checkStatus, 3000);
@@ -1495,8 +1518,10 @@
             }
             try {
                 const res = await fetch(`${API_URL}/questions/${currentQId}/status`, { headers: getHeaders() });
-                const data = await res.json();
-                if (data.is_completed || ['failed', 'error', 'completed', 'complete'].includes(String(data.status || '').toLowerCase())) {
+                const data = await parseResponse(res);
+                const payload = payloadOf(data);
+                const state = String(payload?.status || data?.status || '').toLowerCase();
+                if (payload?.is_completed || data?.is_completed || ['failed', 'error', 'completed', 'complete', 'cancelled'].includes(state)) {
                     clearInterval(pollInterval);
                     pollInterval = null;
                     await getResult();
@@ -1509,27 +1534,42 @@
                 const res = await fetch(`${API_URL}/questions/${currentQId}/result`, {
                     headers: getHeaders()
                 });
-                const data = await res.json();
+
+                const data = await parseResponse(res);
+                const payload = payloadOf(data);
+
                 removeTyping();
 
-                if (data.answer) {
-                    addMessage('assistant', data.answer);
-                    if (Array.isArray(data.sources) && data.sources.length) {
+                if (payload?.answer || data?.answer) {
+                    const answer = payload?.answer || data?.answer;
+                    const sources = payload?.sources || data?.sources || [];
+
+                    addMessage('assistant', answer);
+
+                    if (Array.isArray(sources) && sources.length) {
                         const sourceButton = document.createElement('button');
                         sourceButton.className = 'btn btn-sm btn-outline-light mt-2';
-                        sourceButton.textContent = `📚 ${data.sources.length} sources`;
-                        sourceButton.addEventListener('click', () => showSources(data.sources));
-                        const last = document.querySelector('#chatMessages .message.assistant:last-child .bubble');
+                        sourceButton.textContent = `📚 ${sources.length} sources`;
+                        sourceButton.addEventListener('click', () => showSources(sources));
+
+                        const last = document.querySelector(
+                            '#chatMessages .message.assistant:last-child .bubble'
+                        );
+
                         if (last) last.appendChild(sourceButton);
                     }
+
                     loadHistory();
-                } else if (data.status === 'failed') {
-                    addMessage('assistant', `❌ Error: ${data.error || 'No response received'}`);
+
+                } else if (payload?.status === 'failed' || data?.status === 'failed') {
+                    addMessage('assistant', `❌ Error: ${payload?.error || data?.error || 'No response received'}`);
                 } else {
                     addMessage('assistant', '❌ No response received');
                 }
+
                 currentQId = null;
                 updateStatus('● Ready', true);
+
             } catch (e) {
                 removeTyping();
                 addMessage('assistant', `❌ Error: ${e.message}`);
@@ -1538,10 +1578,10 @@
         }
 
         function showSources(sources) {
-            let html = '<div class="p-2">📚 <strong>Sources:</strong><ul class="mb-0 mt-1">';
-            sources.forEach(s => html += `<li class="small" style="color:rgba(255,255,255,0.5);">Document ${escapeHtml(s.document_id ?? 'unknown')}${s.page ? `, page ${escapeHtml(s.page)}` : ''}</li>`);
-            html += '</ul></div>';
-            showToast('Sources', html, 'info');
+            const text = sources.map((s, i) =>
+                `${i + 1}. Document ${s.document_id ?? 'unknown'}${s.page ? `, page ${s.page}` : ''}`
+            ).join(' | ');
+            showToast('Sources', text || 'No source details available.', 'info');
         }
 
         // ============================================================
@@ -1550,9 +1590,10 @@
         async function loadHistory() {
             const container = document.getElementById('historyList');
             try {
-                const res = await fetch(`${API_URL}/sessions/${SESSION_ID}`, { headers: getHeaders() });
-                const data = await res.json();
-                const questions = data.questions || [];
+                const res = await fetch(`${API_URL}/session/${SESSION_ID}/history`, { headers: getHeaders() });
+                const data = await parseResponse(res);
+                const payload = payloadOf(data);
+                const questions = payload?.questions || payload?.history || (Array.isArray(payload) ? payload : []);
 
                 if (!questions.length) {
                     container.innerHTML =
@@ -1578,6 +1619,10 @@
         document.addEventListener('DOMContentLoaded', function() {
             if (!TOKEN) {
                 window.location.href = 'login.html';
+                return;
+            }
+            if (!Number.isInteger(SESSION_ID) || SESSION_ID < 1) {
+                window.location.href = 'dashboard.html';
                 return;
             }
 
