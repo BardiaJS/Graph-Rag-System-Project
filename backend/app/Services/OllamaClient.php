@@ -83,6 +83,12 @@ class OllamaClient
             return $default;
         }
 
+        if (app()->environment('local')) {
+            Log::debug('Ollama Grade Raw Response', [
+                'model' => $model,
+                'response' => $raw,
+            ]);
+        }
         $decoded = json_decode($raw, true);
         if (is_array($decoded)) {
             return $decoded;

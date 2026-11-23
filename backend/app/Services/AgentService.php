@@ -45,24 +45,39 @@ Return JSON only:
 {history}Question: {question}
 TXT;
 
+
     private const GRADE_PROMPT = <<<'TXT'
-You judge whether retrieved passages are enough to answer a question.
+    You evaluate whether retrieved passages provide sufficient, directly relevant
+    evidence to answer the original question using the selected documents.
 
-Question: {question}
-Available document ids: {ids}
+    Question: {question}
+    Available document ids: {ids}
 
-Passages:
-{passages}
+    Passages:
+    {passages}
 
-Be conservative: answer sufficient=true whenever the passages contain a plausible answer
-(for every document the question concerns). Only if something clearly needed is missing,
-list up to 3 NEW, differently-worded search queries for that missing part of the ORIGINAL
-question. Every follow-up must be about the ORIGINAL question above: never ask about other
-topics, even if the passages mention them.
+    Evaluate the passages carefully:
 
-Return JSON only:
-{"sufficient": true, "missing": [{"q": "<query>", "document_ids": [<ids>]}]}
-TXT;
+    1. Relevance: Passages must discuss the actual concepts asked about, not merely
+    contain similar keywords or related terminology.
+    2. Coverage: All important parts of the question must be supported.
+    3. Evidence: A plausible answer based on general knowledge is NOT sufficient.
+    The answer must be supported by the provided passages.
+    4. Distinguish concepts that share terminology but have different meanings.
+    For example, a NULL data type and the null coalescing operator are different
+    concepts.
+    5. If the passages contain a direct answer to every important part of the
+    question, return sufficient=true.
+    6. Otherwise, return sufficient=false and provide up to 3 NEW search queries
+    targeting the missing information.
+    7. Every follow-up query must address the ORIGINAL question only.
+
+    Do not request more searches when the existing passages already provide
+    sufficient direct evidence.
+
+    Return JSON only:
+    {"sufficient": true, "missing": [{"q": "<query>", "document_ids": [<ids>]}]}
+    TXT;
 
     private const SYNTH_RULES = 'You answer research questions strictly from the provided sources. '
         . 'Rules: (1) Use only facts stated in the sources. (2) After every claim, cite the '
@@ -161,6 +176,13 @@ TXT;
         $messages = $this->synthMessages($question, $evidence, $options);
         $t = microtime(true);
         $raw = trim($this->llm->chat($messages, false, 0.1, $this->model($options)));
+        if (app()->environment('local')) {
+            \Illuminate\Support\Facades\Log::debug('GraphRAG Synthesis Raw', [
+                'model' => $this->model($options),
+                'question' => $question,
+                'response' => $raw,
+            ]);
+        }
         $llmSeconds = round(microtime(true) - $t, 1);
 
         $t = microtime(true);
@@ -377,31 +399,62 @@ TXT;
      *
      * @return int number of chunks not seen before
      */
-    private function retrieveInto(array $queries, array $docIds, array &$store, array &$trace): int
-    {
+    private function retrieveInto(
+        array $queries,
+        array $docIds,
+        array &$store,
+        array &$trace
+    ): int {
         $items = $this->rag->retrieve($queries, $docIds);
 
         $new = 0;
+        $retrievedDetails = [];
+
         foreach ($items as $item) {
             $key = $item['key'] ?? null;
+
             if (!is_string($key) || $key === '') {
                 continue;
             }
 
+            $score = (float) ($item['score'] ?? 0);
+
+            // Update an existing item if the new score is higher.
             if (isset($store[$key])) {
-                $store[$key]['score'] = max((float) $store[$key]['score'], (float) ($item['score'] ?? 0));
-                continue;
+                if ($score > (float) ($store[$key]['score'] ?? 0)) {
+                    $store[$key] = $item;
+                }
+            } else {
+                $store[$key] = $item;
+                $new++;
             }
 
-            $store[$key] = $item;
-            $new++;
+            // Collect retrieval details for local debugging.
+            if (app()->environment('local')) {
+                $retrievedDetails[] = [
+                    'key' => $key,
+                    'document_id' => $item['document_id'] ?? null,
+                    'page' => $item['page'] ?? null,
+                    'chunk_index' => $item['chunk_index'] ?? null,
+                    'score' => $score,
+                    'source' => $item['source'] ?? null,
+                    'linked_via' => $item['linked_via'] ?? [],
+                    'text_preview' => mb_substr(
+                        (string) ($item['text'] ?? ''),
+                        0,
+                        250
+                    ),
+                ];
+            }
         }
 
         $trace[] = [
             'step' => 'retrieve',
             'queries' => count($queries),
+            'query_texts' => array_column($queries, 'q'),
             'returned' => count($items),
             'new' => $new,
+            'items' => $retrievedDetails,
         ];
 
         return $new;
@@ -546,11 +599,11 @@ TXT;
         // On LLM failure, default to "sufficient" so the loop stops instead of spinning.
         $data = $this->llm->chatJson(
             [['role' => 'user', 'content' => $prompt]],
-            ['sufficient' => true],
+            ['sufficient' => false, 'missing' => []],
             $this->model($options)
         );
 
-        $sufficient = $data['sufficient'] ?? true;
+        $sufficient = $data['sufficient'] ?? false;
         if (is_string($sufficient)) {
             $sufficient = !in_array(strtolower(trim($sufficient)), ['false', 'no', '0'], true);
         }
