@@ -19,9 +19,15 @@ Source ids must look like S<number> (S1, S2, ...): that is what the answer is to
 """
 import os
 import re
+import json
 from typing import Any, Dict, List, Set
 
 from app.services.figure_service import _DIGITS, MENTION_RE, extract_figure_numbers
+from app.services.llm_service import chat_json
+
+SEMANTIC_ENABLED = os.getenv("VERIFY_SEMANTIC_ENABLED", "false").lower() == "true"
+SEMANTIC_MODEL = os.getenv("VERIFY_SEMANTIC_MODEL", "llama3.2")
+SEMANTIC_TIMEOUT = int(os.getenv("VERIFY_SEMANTIC_TIMEOUT", 60))
 
 CITE_RE = re.compile(r"\[([^\[\]]*?S\d+[^\[\]]*?)\]")
 MAX_CITED = int(os.getenv("VERIFY_MAX_CITED", 5))
@@ -92,6 +98,336 @@ def _prune(answer: str, cited: List[str], by_sid: Dict[str, str]) -> List[str]:
     keep = [sid for sid in sorted(cited, key=lambda s: -scores[s]) if scores[sid] >= threshold]
     return keep[:MAX_CITED] or [max(cited, key=lambda s: scores[s])]
 
+def _extract_claims(answer: str) -> List[Dict[str, Any]]:
+    """
+    Split an answer into sentences and associate each sentence
+    with the citations appearing in that sentence.
+    """
+    parts = re.split(r"(?<=[.!?؟])\s+", answer.strip())
+    claims = []
+
+    for part in parts:
+        text = part.strip()
+
+        if not text:
+            continue
+
+        citations = sorted(
+            set(re.findall(r"\[(S\d+)\]", text)),
+            key=_num,
+        )
+
+        claim = CITE_RE.sub(" ", text)
+        claim = re.sub(r"\s+", " ", claim).strip()
+
+        claim = re.sub(r"\s+([,.!?؟])", r"\1", claim)
+
+        if not claim or not re.search(r"\w", claim):
+            continue
+
+        claims.append({
+            "index": len(claims),
+            "claim": claim,
+            "citations": citations,
+        })
+
+    return claims
+
+def _semantic_verify(
+    answer: str,
+    by_sid: Dict[str, str],
+) -> Dict[str, Any]:
+    """
+    Evaluate each answer claim only against its own cited sources.
+    This is shadow evaluation: it never modifies the answer.
+    """
+    claims = _extract_claims(answer)
+
+    if not claims:
+        return {
+            "status": "skipped",
+            "checks": [],
+        }
+
+    payload = []
+
+    for item in claims:
+        cited_sources = [
+            {
+                "sid": sid,
+                "text": by_sid[sid][:5000],
+            }
+            for sid in item["citations"]
+            if sid in by_sid
+        ]
+
+        if not item["citations"]:
+            payload.append({
+                **item,
+                "status": "missing_citation",
+                "sources": [],
+            })
+        elif not cited_sources:
+            payload.append({
+                **item,
+                "status": "unsupported",
+                "sources": [],
+            })
+        else:
+            payload.append({
+                **item,
+                "sources": cited_sources,
+            })
+
+    to_evaluate = [
+        item for item in payload
+        if "status" not in item
+    ]
+
+    if not to_evaluate:
+        return {
+            "status": "completed",
+            "checks": [
+                {
+                    "claim": item["claim"],
+                    "citations": item["citations"],
+                    "status": item.get("status", "not_evaluated"),
+                    "reason": (
+                        "The claim has no citation."
+                        if item.get("status") == "missing_citation"
+                        else "No valid cited source was available."
+                    ),
+                }
+                for item in payload
+            ],
+        }
+
+    prompt_data = [
+        {
+            "index": item["index"],
+            "claim": item["claim"],
+            "sources": item["sources"],
+        }
+        for item in to_evaluate
+    ]
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a strict citation-grounding evaluator. "
+                "Evaluate whether EACH claim is supported by ONLY the "
+                "sources explicitly attached to that claim. "
+                "Do not use outside knowledge. "
+                "Do not use other claims' sources. "
+                "A source mentioning similar words is not sufficient: "
+                "it must support the actual meaning of the claim. "
+                "Distinguish direct support from partial support. "
+                "Return JSON only."
+                "A claim may contain multiple factual parts. "
+                "If at least one important part is supported but another "
+                "important part is not supported, classify it as "
+                "partially_supported. "
+                "Use unsupported only when none of the meaningful factual "
+                "parts are supported by the cited sources. "
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Evaluate these claims and their cited sources.\n\n"
+                f"{json.dumps(prompt_data, ensure_ascii=False)}\n\n"
+                "Return this JSON structure:\n"
+                "{"
+                '"checks": ['
+                "{"
+                '"index": 0,'
+                '"status": "supported",'
+                '"reason": "Brief explanation"'
+                "}"
+                "]"
+                "}\n\n"
+                "Allowed statuses: supported, partially_supported, unsupported."
+            ),
+        },
+    ]
+
+    try:
+        result = chat_json(
+            messages,
+            default=None,
+            strict=True,
+            model=SEMANTIC_MODEL,
+            timeout=SEMANTIC_TIMEOUT,
+        )
+        print("SEMANTIC EVALUATOR RAW:", repr(result), flush=True)
+        if not isinstance(result, dict) or not isinstance(result.get("checks"), list):
+            raise ValueError("Invalid semantic verification response.")
+
+        evaluated = {}
+
+        expected_indexes = {
+            item["index"] for item in to_evaluate
+        }
+
+        for check in result["checks"]:
+            if not isinstance(check, dict):
+                continue
+
+            index = check.get("index")
+
+            if isinstance(index, str) and index.isdigit():
+                index = int(index)
+
+            status = check.get("status")
+
+            if (
+                isinstance(index, int)
+                and index in expected_indexes
+                and status in {
+                    "supported",
+                    "partially_supported",
+                    "unsupported",
+                }
+            ):
+                evaluated[index] = {
+                    "status": status,
+                    "reason": str(check.get("reason", ""))[:500],
+                }
+
+        missing_items = [
+            item for item in to_evaluate
+            if item["index"] not in evaluated
+        ]
+
+        if missing_items:
+            retry_index_map = {
+                index: item["index"]
+                for index, item in enumerate(missing_items)
+            }
+
+            retry_data = [
+                {
+                    "index": index,
+                    "claim": item["claim"],
+                    "sources": item["sources"],
+                }
+                for index, item in enumerate(missing_items)
+            ]
+
+            retry_messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a strict citation evaluator. "
+                        "Evaluate EVERY claim in the input. "
+                        "Do not skip any claim. "
+                        "Use only the sources attached to that claim. "
+                        "Return exactly one check for every input index. "
+                        "Allowed statuses: supported, partially_supported, unsupported. "
+                        "Return valid JSON only."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Evaluate all of these claims:\n"
+                        f"{json.dumps(retry_data, ensure_ascii=False)}\n"
+                        'Return one check for every input index. '
+                        'Preserve each index exactly as provided. '
+                        'Do not renumber or invent indexes. '
+                        'Example format: {"checks":[{"index":0,'
+                        '"status":"supported","reason":"..."}]}'
+                    ),
+                },
+            ]
+
+            retry_result = chat_json(
+                retry_messages,
+                default=None,
+                strict=True,
+                model=SEMANTIC_MODEL,
+                timeout=SEMANTIC_TIMEOUT,
+            )
+
+            print("SEMANTIC RETRY RAW:", repr(retry_result), flush=True)
+
+            if isinstance(retry_result, dict) and isinstance(
+                retry_result.get("checks"), list
+            ):
+                for check in retry_result["checks"]:
+                    if not isinstance(check, dict):
+                        continue
+
+                    retry_index = check.get("index")
+
+                    if isinstance(retry_index, str) and retry_index.isdigit():
+                        retry_index = int(retry_index)
+
+                    status = check.get("status")
+
+                    if (
+                        isinstance(retry_index, int)
+                        and retry_index in retry_index_map
+                        and status in {
+                            "supported",
+                            "partially_supported",
+                            "unsupported",
+                        }
+                    ):
+                        original_index = retry_index_map[retry_index]
+
+                        evaluated[original_index] = {
+                            "status": status,
+                            "reason": str(check.get("reason", ""))[:500],
+                        }
+
+        final_checks = []
+
+        for item in payload:
+            if "status" in item:
+                status = item["status"]
+                reason = (
+                    "The claim has no citation."
+                    if status == "missing_citation"
+                    else "No valid cited source was available."
+                )
+            else:
+                evaluation = evaluated.get(item["index"])
+
+                if evaluation:
+                    status = evaluation["status"]
+                    reason = evaluation["reason"]
+                else:
+                    status = "evaluation_error"
+                    reason = "The evaluator did not return a valid result."
+
+            final_checks.append({
+                "claim": item["claim"],
+                "citations": item["citations"],
+                "status": status,
+                "reason": reason,
+            })
+
+        return {
+            "status": "completed",
+            "checks": final_checks,
+        }
+
+    except Exception as exc:
+        return {
+            "status": "error",
+            "error": str(exc)[:500],
+            "checks": [
+                {
+                    "claim": item["claim"],
+                    "citations": item["citations"],
+                    "status": "evaluation_error",
+                    "reason": "Semantic evaluation failed.",
+                }
+                for item in payload
+            ],
+        }
 
 def verify_answer(answer: str, sources: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
@@ -176,8 +512,22 @@ def verify_answer(answer: str, sources: List[Dict[str, Any]]) -> Dict[str, Any]:
         if len(words & known) / len(words) < MIN_SUPPORT_RATIO:
             warnings.append("Most terms in the answer do not appear in the sources.")
 
-    return {**result, "answer": cleaned, "cited_sids": cited, "warnings": warnings}
-
+    # 7) optional semantic citation verification (shadow mode)
+    semantic_checks = (
+        _semantic_verify(cleaned, by_sid)
+        if SEMANTIC_ENABLED
+        else {
+            "status": "disabled",
+            "checks": [],
+        }
+    )
+    return {
+        **result,
+        "answer": cleaned,
+        "cited_sids": cited,
+        "warnings": warnings,
+        "semantic_checks": semantic_checks,
+    }
 
 def _num(sid: str) -> int:
     return int(sid[1:])
