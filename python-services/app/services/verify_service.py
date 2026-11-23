@@ -29,6 +29,12 @@ SEMANTIC_ENABLED = os.getenv("VERIFY_SEMANTIC_ENABLED", "false").lower() == "tru
 SEMANTIC_MODEL = os.getenv("VERIFY_SEMANTIC_MODEL", "llama3.2")
 SEMANTIC_TIMEOUT = int(os.getenv("VERIFY_SEMANTIC_TIMEOUT", 60))
 
+CITATION_REPAIR_ENABLED = os.getenv("VERIFY_CITATION_REPAIR_ENABLED", "false").lower() == "true"
+CITATION_REPAIR_MODEL = os.getenv("VERIFY_CITATION_REPAIR_MODEL", "llama3.2")
+CITATION_REPAIR_TIMEOUT = int(os.getenv("VERIFY_CITATION_REPAIR_TIMEOUT", 60))
+CITATION_REPAIR_MAX_TOKENS = int(os.getenv("VERIFY_CITATION_REPAIR_MAX_TOKENS", 512))
+
+
 CITE_RE = re.compile(r"\[([^\[\]]*?S\d+[^\[\]]*?)\]")
 MAX_CITED = int(os.getenv("VERIFY_MAX_CITED", 5))
 MIN_SUPPORT_RATIO = float(os.getenv("VERIFY_MIN_SUPPORT_RATIO", 0.3))
@@ -129,9 +135,166 @@ def _extract_claims(answer: str) -> List[Dict[str, Any]]:
             "index": len(claims),
             "claim": claim,
             "citations": citations,
+            "raw": text,
         })
 
     return claims
+
+
+def _repair_missing_citations(
+    answer: str,
+    by_sid: Dict[str, str],
+) -> Dict[str, Any]:
+    report = {
+        "status": "disabled",
+        "attempted": 0,
+        "repaired": 0,
+        "unresolved": 0,
+        "reasons": [],
+    }
+
+    if not CITATION_REPAIR_ENABLED:
+        return {"answer": answer, "report": report}
+
+    claims = _extract_claims(answer)
+
+    candidates = [
+        item for item in claims
+        if not item["citations"]
+        and not item["claim"].startswith("#")
+        and not re.search(r"[?؟]\\s*$", item["claim"])
+        and not REFUSAL_RE.search(item["claim"])
+    ]
+
+    if not candidates:
+        report["status"] = "no_candidates"
+        return {"answer": answer, "report": report}
+
+    report["status"] = "running"
+    report["attempted"] = len(candidates)
+
+    prompt_data = [
+        {"index": item["index"], "claim": item["claim"]}
+        for item in candidates
+    ]
+
+    source_data = [
+        {"sid": sid, "text": source_text[:4000]}
+        for sid, source_text in by_sid.items()
+    ]
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a strict citation-grounding assistant. "
+                "For each sentence, identify only sources that directly "
+                "support its factual meaning. Use exclusively the supplied "
+                "sources. Do not use outside knowledge. Similar keywords "
+                "are not enough. Return the minimum sources needed. "
+                "If no source directly supports a sentence, return an "
+                "empty sids array. Never invent source IDs. "
+                "Return valid JSON only."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "SENTENCES:\n"
+                + json.dumps(prompt_data, ensure_ascii=False)
+                + "\n\nSOURCES:\n"
+                + json.dumps(source_data, ensure_ascii=False)
+                + '\n\nReturn exactly this JSON structure: '
+                '{"repairs":[{"index":0,"sids":["S1"]}]} '
+                "Include one item per sentence. Use [] if unsupported. "
+                "Preserve indexes exactly."
+            ),
+        },
+    ]
+
+    try:
+        result = chat_json(
+            messages,
+            default=None,
+            strict=False,
+            model=CITATION_REPAIR_MODEL,
+            max_tokens=CITATION_REPAIR_MAX_TOKENS,
+            timeout=CITATION_REPAIR_TIMEOUT,
+        )
+    except Exception as exc:
+        result = None
+        report["reasons"].append(str(exc)[:300])
+
+    if not isinstance(result, dict) or not isinstance(result.get("repairs"), list):
+        report["status"] = "model_error"
+        report["unresolved"] = len(candidates)
+        report["reasons"].append("Invalid repair model response.")
+        return {"answer": answer, "report": report}
+
+    candidate_indexes = {item["index"] for item in candidates}
+    accepted = {}
+
+    for item in result["repairs"]:
+        if not isinstance(item, dict):
+            continue
+
+        index = item.get("index")
+        if isinstance(index, str) and index.isdigit():
+            index = int(index)
+
+        if not isinstance(index, int) or index not in candidate_indexes:
+            continue
+
+        sids = item.get("sids")
+        if not isinstance(sids, list):
+            continue
+
+        valid_sids = list(dict.fromkeys(
+            sid for sid in sids
+            if isinstance(sid, str) and sid in by_sid
+        ))
+
+        if valid_sids:
+            accepted[index] = valid_sids[:3]
+
+    repaired_answer = answer
+
+    for item in candidates:
+        sids = accepted.get(item["index"], [])
+        if not sids:
+            continue
+
+        raw = item["raw"]
+        citation = " " + "".join(f"[{sid}]" for sid in sids)
+
+        match = re.search(r"([.!?؟])$", raw)
+        updated = (
+            raw[:match.start()] + citation + raw[match.start():]
+            if match
+            else raw + citation
+        )
+
+        position = repaired_answer.find(raw)
+        if position == -1:
+            continue
+
+        repaired_answer = (
+            repaired_answer[:position]
+            + updated
+            + repaired_answer[position + len(raw):]
+        )
+        report["repaired"] += 1
+
+    report["unresolved"] = report["attempted"] - report["repaired"]
+    report["status"] = "completed"
+
+    if report["unresolved"]:
+        report["reasons"].append(
+            "Some sentences had no directly supporting source."
+        )
+
+    return {"answer": repaired_answer, "report": report}
+
 
 def _semantic_verify(
     answer: str,
@@ -468,6 +631,11 @@ def verify_answer(answer: str, sources: List[Dict[str, Any]]) -> Dict[str, Any]:
             "warnings": warnings,
         }
 
+    # 3) Repair missing citations before final citation checks.
+    repair_result = _repair_missing_citations(cleaned, by_sid)
+    cleaned = repair_result["answer"]
+    citation_repair = repair_result["report"]
+
     cited = sorted(set(re.findall(r"\[(S\d+)\]", cleaned)), key=_num)
 
     # 3) citation stuffing
@@ -527,6 +695,7 @@ def verify_answer(answer: str, sources: List[Dict[str, Any]]) -> Dict[str, Any]:
         "cited_sids": cited,
         "warnings": warnings,
         "semantic_checks": semantic_checks,
+        "citation_repair": citation_repair,
     }
 
 def _num(sid: str) -> int:

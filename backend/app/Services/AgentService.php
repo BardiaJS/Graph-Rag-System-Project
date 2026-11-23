@@ -79,17 +79,24 @@ TXT;
     {"sufficient": true, "missing": [{"q": "<query>", "document_ids": [<ids>]}]}
     TXT;
 
+
     private const SYNTH_RULES = 'You answer research questions strictly from the provided sources. '
-        . 'Rules: (1) Use only facts stated in the sources. (2) After every claim, cite the '
-        . 'supporting source ids like [S2] or [S1][S4], using only the one to three sources that directly state the claim and never listing every source. (3) When documents differ, say which '
-        . 'document each statement comes from. (4) Mention a figure only if it is listed under '
-        . '"Linked figures" of a source or named in that source\'s text, and cite that source; '
-        . 'never invent figure numbers, tables or pages. (5) If the sources do not contain the '
-        . 'answer, say so plainly instead of guessing. '
-        . '(6) The sources are excerpts of documents the user uploaded: when the question says '
-        . '"this paper", "this document" or "the document", it means the document the sources '
-        . 'come from, so never claim that no paper or document was provided. '
-        . '(7) Keep it short: at most about 120 words unless the question asks for detail or a list. ';
+    . 'Rules: (1) Use only facts stated in the sources. '
+    . '(2) Every factual sentence MUST contain its own citation at the end. '
+    . 'Never rely on a citation in a previous or following sentence to support the current sentence. '
+    . 'If two consecutive sentences use the same source, repeat its citation in both sentences. '
+    . 'For example: "PHP provides eight data types [S3]. Four are scalar types [S3]. '
+    . 'Two are compound types [S3]." '
+    . 'Use only the one to three sources that directly support each sentence. '
+    . '(3) When documents differ, say which document each statement comes from. '
+    . '(4) Mention a figure only if it is listed under '
+    . '"Linked figures" of a source or named in that source\'s text, and cite that source; '
+    . 'never invent figure numbers, tables or pages. '
+    . '(5) If the sources do not contain the answer, say so plainly instead of guessing. '
+    . '(6) The sources are excerpts of documents the user uploaded: when the question says '
+    . '"this paper", "this document" or "the document", it means the document the sources '
+    . 'come from, so never claim that no paper or document was provided. '
+    . '(7) Keep it short: at most about 120 words unless the question asks for detail or a list. ';
 
     /** An answer that says "the sources don't cover this". Such an answer correctly cites nothing. */
     private const REFUSAL = '/(not (contain|mention|provide|include|found|covered)|no (relevant )?information|'
@@ -234,6 +241,36 @@ TXT;
                 ];
             }
         }
+
+        $semantic = $check['semantic_checks'] ?? [
+            'status' => 'unavailable',
+            'checks' => [],
+        ];
+
+        $semanticChecks = $semantic['checks'] ?? [];
+
+        $semanticCounts = [
+            'supported' => 0,
+            'partially_supported' => 0,
+            'unsupported' => 0,
+            'missing_citation' => 0,
+            'evaluation_error' => 0,
+        ];
+
+        foreach ($semanticChecks as $item) {
+            $status = $item['status'] ?? null;
+
+            if (isset($semanticCounts[$status])) {
+                $semanticCounts[$status]++;
+            }
+        }
+
+        $trace[] = [
+            'step' => 'semantic_verification',
+            'status' => $semantic['status'] ?? 'unavailable',
+            'counts' => $semanticCounts,
+            'checks' => $semanticChecks,
+        ];
 
         $trace[] = [
             'step' => 'synthesize',

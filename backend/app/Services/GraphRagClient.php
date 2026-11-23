@@ -102,8 +102,16 @@ class GraphRagClient
     }
 
     /**
-     * @param  array<int, array{sid: string, text: string, figure_numbers: array<string>}>  $sources
-     * @return array{answer: string, cited_sids: array<string>, unverified_figures: array<string>, warnings: array<string>}
+     * @param array<int, array{sid: string, text: string, figure_numbers: array<string>}> $sources
+     * @return array{
+     *     answer: string,
+     *     cited_sids: array<string>,
+     *     unverified_figures: array<string>,
+     *     unsupported_numbers: array,
+     *     refusal: bool,
+     *     warnings: array,
+     *     semantic_checks: array
+     * }
      */
     public function verify(string $answer, array $sources): array
     {
@@ -119,6 +127,10 @@ class GraphRagClient
             'unsupported_numbers' => $data['unsupported_numbers'] ?? [],
             'refusal' => (bool) ($data['refusal'] ?? false),
             'warnings' => $data['warnings'] ?? [],
+            'semantic_checks' => $data['semantic_checks'] ?? [
+                'status' => 'unavailable',
+                'checks' => [],
+            ],
         ];
     }
 
