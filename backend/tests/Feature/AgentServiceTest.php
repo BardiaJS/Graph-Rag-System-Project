@@ -388,7 +388,7 @@ class AgentServiceTest extends TestCase
 
         // The grader is told to stay on the original question.
         Http::assertSent(fn ($request) => str_contains($request->url(), '/api/chat')
-            && str_contains($request['messages'][0]['content'], 'about the ORIGINAL question'));
+            && str_contains($request['messages'][0]['content'], 'address the ORIGINAL question only'));
     }
 
     public function test_evidence_is_capped_to_fit_the_context_window(): void

@@ -110,7 +110,8 @@ class GraphRagClient
      *     unsupported_numbers: array,
      *     refusal: bool,
      *     warnings: array,
-     *     semantic_checks: array
+     *     semantic_checks: array,
+     *     citation_repair: array
      * }
      */
     public function verify(string $answer, array $sources): array
@@ -130,6 +131,13 @@ class GraphRagClient
             'semantic_checks' => $data['semantic_checks'] ?? [
                 'status' => 'unavailable',
                 'checks' => [],
+            ],
+            'citation_repair' => $data['citation_repair'] ?? [
+                'status' => 'unavailable',
+                'attempted' => 0,
+                'repaired' => 0,
+                'unresolved' => 0,
+                'reasons' => [],
             ],
         ];
     }

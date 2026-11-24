@@ -265,6 +265,19 @@ TXT;
             }
         }
 
+        $citationRepair = $check['citation_repair'] ?? [
+            'status' => 'unavailable',
+            'attempted' => 0,
+            'repaired' => 0,
+            'unresolved' => 0,
+            'reasons' => [],
+        ];
+
+        $trace[] = [
+            'step' => 'citation_repair',
+            ...$citationRepair,
+        ];
+
         $trace[] = [
             'step' => 'semantic_verification',
             'status' => $semantic['status'] ?? 'unavailable',
