@@ -67,6 +67,7 @@ def chat_json(
     model: Optional[str] = None,
     max_tokens: Optional[int] = None,
     timeout: int = 180,
+    raise_on_invalid_json: bool = False,
 ) -> Dict[str, Any]:
     """Ask for JSON.
 
@@ -92,6 +93,8 @@ def chat_json(
             except json.JSONDecodeError:
                 pass
         logger.warning(f"Could not parse LLM JSON: {raw[:200]!r}")
+        if raise_on_invalid_json:
+            raise LLMError("The model returned invalid JSON.")
         return default if default is not None else {}
 
 

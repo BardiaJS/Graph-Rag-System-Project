@@ -107,6 +107,7 @@ def extract_from_chunk(text: str) -> Tuple[List[dict], List[dict]]:
         model=ENTITY_MODEL,
         max_tokens=ENTITY_MAX_TOKENS,
         timeout=ENTITY_LLM_TIMEOUT,
+        raise_on_invalid_json=True,
     )
     return _parse(raw, text)
 
