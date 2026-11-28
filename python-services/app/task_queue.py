@@ -35,10 +35,9 @@ ENTITY_JOB_TIMEOUT = int(os.getenv("ENTITY_JOB_TIMEOUT", 6 * 3600))
 entities_queue = Queue(ENTITIES_QUEUE_NAME, connection=redis_conn, default_timeout=ENTITY_JOB_TIMEOUT)
 
 
-def entity_cancel_key(document_id: int) -> str:
-    """While this key exists, entity work for the document must stop and write nothing
-    (set on delete and on re-processing)."""
-    return f"graphrag:entities:cancel:{int(document_id)}"
+def entity_cancel_key(document_id: int, job_id: str) -> str:
+    """Cancellation flag for one specific entity-extraction run."""
+    return f"graphrag:entities:cancel:{int(document_id)}:{job_id}"
 
 
 def entity_job_key(document_id: int) -> str:

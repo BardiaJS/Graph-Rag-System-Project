@@ -159,16 +159,20 @@ def _entity_job_status(document_id: int) -> Optional[dict]:
 
 
 def _stop_entity_work(document_id: int) -> None:
-    """Make any queued or running entity job for this document stand down."""
-    redis_conn.set(entity_cancel_key(document_id), "1", ex=3600)  # a running job polls this
+    """Stop only the most recent entity-extraction job for this document."""
     raw = redis_conn.get(entity_job_key(document_id))
-    if raw:
-        job = _fetch_job(raw.decode() if isinstance(raw, bytes) else str(raw))
-        if job is not None and _status_str(job) in ACTIVE_STATUSES - {"started"}:
-            try:
-                job.delete(remove_from_queue=True)  # still waiting: just drop it
-            except Exception as e:
-                logger.warning(f"Could not remove entity job for document {document_id}: {e}")
+    if not raw:
+        return
+
+    job_id = raw.decode() if isinstance(raw, bytes) else str(raw)
+    redis_conn.set(entity_cancel_key(document_id, job_id), "1", ex=3600)
+
+    job = _fetch_job(job_id)
+    if job is not None and _status_str(job) in ACTIVE_STATUSES - {"started"}:
+        try:
+            job.delete(remove_from_queue=True)
+        except Exception as e:
+            logger.warning(f"Could not remove entity job for document {document_id}: {e}")
 
 
 # ============================================================

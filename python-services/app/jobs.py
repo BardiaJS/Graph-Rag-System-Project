@@ -16,7 +16,7 @@ Two kinds of job:
 """
 import logging
 import os
-import time
+import uuid
 from typing import Any, Dict, Optional
 
 import requests
@@ -151,7 +151,7 @@ def process_document_job(
     _debug(print_qdrant_points, document_id=document_id, limit=5)
 
     _stage("graph")
-    build_graph(
+    generation = build_graph(
         document_id=document_id,
         chunks=chunks,
         title=f"Document {document_id}",
@@ -171,7 +171,7 @@ def process_document_job(
         # Not done here any more: it takes tens of minutes. Queue it and finish now, so the
         # document becomes searchable (and Laravel is told) as soon as the graph exists.
         try:
-            summary["entities"] = enqueue_entities(document_id)
+            summary["entities"] = enqueue_entities(document_id, generation=generation)
         except Exception as e:
             logger.error(f"Could not queue entity extraction for document {document_id}: {e}")
             summary["entity_error"] = f"Could not queue entity extraction: {e}"
@@ -184,58 +184,67 @@ def process_document_job(
 # ---------------------------------------------------------------- entities
 
 def _cancel_entity_work(document_id: int) -> None:
+    """Cancel only the most recent entity-extraction run for this document."""
     try:
-        redis_conn.set(entity_cancel_key(document_id), "1", ex=3600)
+        raw = redis_conn.get(entity_job_key(document_id))
+        if raw:
+            job_id = raw.decode() if isinstance(raw, bytes) else str(raw)
+            redis_conn.set(entity_cancel_key(document_id, job_id), "1", ex=3600)
     except Exception as e:
-        logger.warning(f"Could not set entity cancel flag for document {document_id}: {e}")
+        logger.warning(f"Could not cancel entity work for document {document_id}: {e}")
 
 
-def enqueue_entities(document_id: int) -> Dict[str, Any]:
-    """Queue entity extraction for a freshly ingested document."""
-    redis_conn.delete(entity_cancel_key(document_id))  # lift the stop flag set at job start
+def enqueue_entities(document_id: int, generation: Optional[str] = None) -> Dict[str, Any]:
+    """Queue entity extraction for one specific graph generation."""
+    if not generation:
+        from app.services.graph_service import get_document_generation
+        generation = get_document_generation(document_id)
+    if not generation:
+        raise RuntimeError(f"Document {document_id} has no graph generation")
 
-    # A unique id per run: re-using one id while an older job is still running would
-    # overwrite that job's record.
-    job_id = f"ent-{document_id}-{int(time.time())}"
+    job_id = f"ent-{document_id}-{uuid.uuid4().hex}"
     entities_queue.enqueue(
         extract_entities_job,
         document_id=document_id,
+        generation=generation,
         job_id=job_id,
         job_timeout=ENTITY_JOB_TIMEOUT,
         result_ttl=RESULT_TTL,
         failure_ttl=FAILURE_TTL,
-        meta={"document_id": document_id, "stage": "queued"},
+        meta={"document_id": document_id, "generation": generation, "stage": "queued"},
     )
     redis_conn.set(entity_job_key(document_id), job_id, ex=7 * 86400)
     logger.info(
         f"Entity extraction queued for document {document_id} as {job_id} "
-        f"(needs a worker: python -m app.worker --entities)"
+        f"(generation={generation}; needs a worker: python -m app.worker --entities)"
     )
-    return {"status": "queued", "job_id": job_id}
+    return {"status": "queued", "job_id": job_id, "generation": generation}
 
 
-def extract_entities_job(document_id: int) -> Dict[str, Any]:
-    """Extract entities/relations for an already-ingested document.
-
-    Reads the chunks back from Neo4j (nothing large travels through Redis), stops at once
-    if the document is deleted or re-processed meanwhile, and raises if the language
-    model is unavailable so the failure shows up in GET /documents/{id}."""
+def extract_entities_job(
+    document_id: int, generation: str, job_id: str
+) -> Dict[str, Any]:
+    """Extract entities only for the graph generation this job was created for."""
     from app.services.entity_service import extract_and_store_entities
-    from app.services.graph_service import get_chunk_texts
+    from app.services.graph_service import get_chunk_texts, get_document_generation
 
     document_id = int(document_id)
     _stage("entities", progress=0, total=0)
 
+    if get_document_generation(document_id) != generation:
+        return {"document_id": document_id, "status": "stale", "written": 0}
+
     chunks = get_chunk_texts(document_id)
     if not chunks:
-        return {"document_id": document_id, "warning": "document is not in the graph (deleted?)"}
+        return {"document_id": document_id, "status": "skipped", "warning": "document has no graph chunks"}
 
     _stage("entities", progress=0, total=len(chunks))
     stats = extract_and_store_entities(
         document_id,
         chunks,
+        generation=generation,
         on_progress=lambda done, total: _stage("entities", progress=done, total=total),
-        should_stop=lambda: bool(redis_conn.exists(entity_cancel_key(document_id))),
+        should_stop=lambda: bool(redis_conn.exists(entity_cancel_key(document_id, job_id))),
     )
     _stage("done")
     return {"document_id": document_id, **stats}

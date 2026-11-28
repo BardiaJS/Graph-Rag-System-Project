@@ -62,7 +62,7 @@ Passage:
 def _parse(raw: Dict[str, Any], text: str) -> Tuple[List[dict], List[dict]]:
     """Validate LLM output: whitelist types, drop names not literally in the passage
     (cheap hallucination guard), dedupe, cap sizes."""
-    haystack = text.lower()
+    haystack = normalize(text)
     entities: Dict[str, dict] = {}
 
     for item in raw.get("entities") or []:
@@ -110,6 +110,64 @@ def extract_from_chunk(text: str) -> Tuple[List[dict], List[dict]]:
         raise_on_invalid_json=True,
     )
     return _parse(raw, text)
+
+
+
+def _persist_entity_batch(
+    document_id: int,
+    generation: str,
+    mention_rows: List[dict],
+    relation_rows: List[dict],
+) -> bool:
+    """Persist one batch only while the document still has the expected generation."""
+    ensure_schema()
+
+    def write(tx):
+        # This write acquires a lock on the Document node. Re-ingestion/deletion
+        # must wait for this transaction, closing the generation-check/write race.
+        current = tx.run(
+            """
+            MATCH (d:Document {id: $document_id})
+            SET d._entity_write_lock = coalesce(d._entity_write_lock, 0) + 1
+            WITH d
+            WHERE d.generation = $generation
+            RETURN d.id AS id
+            """,
+            document_id=document_id,
+            generation=generation,
+        ).single()
+        if current is None:
+            return False
+
+        if mention_rows:
+            tx.run(
+                """
+                UNWIND $rows AS row
+                MATCH (c:Chunk {key: row.chunk_key})
+                MERGE (e:Entity {key: row.key})
+                  ON CREATE SET e.name = row.name, e.type = row.type
+                MERGE (c)-[:MENTIONS]->(e)
+                """,
+                rows=mention_rows,
+            )
+        if relation_rows:
+            tx.run(
+                """
+                UNWIND $rows AS row
+                MATCH (a:Entity {key: row.source})
+                MATCH (b:Entity {key: row.target})
+                MERGE (a)-[:RELATED_TO {
+                    type: row.type,
+                    document_id: row.document_id,
+                    chunk_key: row.chunk_key
+                }]->(b)
+                """,
+                rows=relation_rows,
+            )
+        return True
+
+    with get_driver().session() as session:
+        return session.execute_write(write)
 
 
 def extract_and_store_entities(

@@ -20,6 +20,7 @@ Every query that crosses documents MUST filter chunks by the caller's allowed do
 """
 import logging
 import os
+import uuid
 from typing import Any, Dict, List, Optional
 
 from neo4j import GraphDatabase
@@ -123,19 +124,32 @@ def _plan_graph_rows(document_id: int, chunks: List[dict]) -> Dict[str, List[dic
     }
 
 
+def _delete_document_graph_tx(tx, document_id: int):
+    """Delete one document and its owned graph data inside the caller's transaction."""
+    tx.run(
+        "MATCH ()-[r:RELATED_TO {document_id: $id}]-() DELETE r",
+        id=document_id,
+    )
+    tx.run(
+        "MATCH (n) WHERE n.document_id = $id DETACH DELETE n",
+        id=document_id,
+    )
+    tx.run(
+        "MATCH (d:Document {id: $id}) DETACH DELETE d",
+        id=document_id,
+    )
+    tx.run(
+        "MATCH (e:Entity) WHERE NOT (e)<-[:MENTIONS]-() DETACH DELETE e"
+    )
+
+
 def delete_document_graph(document_id: int):
-    """Remove everything belonging to a document (safe to call before a rebuild)."""
+    """Atomically remove a document's graph and its document-owned relationships."""
     ensure_schema()
     with get_driver().session() as session:
-        session.run(
-            "MATCH ()-[r:RELATED_TO {document_id: $id}]-() DELETE r", id=document_id
+        session.execute_write(
+            _delete_document_graph_tx, int(document_id)
         )
-        session.run(
-            "MATCH (n) WHERE n.document_id = $id DETACH DELETE n", id=document_id
-        )
-        session.run("MATCH (d:Document {id: $id}) DETACH DELETE d", id=document_id)
-        # entities no longer mentioned by any chunk
-        session.run("MATCH (e:Entity) WHERE NOT (e)<-[:MENTIONS]-() DETACH DELETE e")
 
 
 def build_graph(
@@ -144,18 +158,24 @@ def build_graph(
     title: str = "",
     user_id: Optional[str] = None,
 ):
-    """Idempotent: deletes any previous graph for this document, then rebuilds in
-    one transaction using batched UNWIND queries."""
+    """Atomically replace a document graph and return its new generation token."""
     document_id = int(document_id)
-    delete_document_graph(document_id)
+    generation = uuid.uuid4().hex
     rows = _plan_graph_rows(document_id, chunks)
 
     def tx(t):
+        _delete_document_graph_tx(t, document_id)
         t.run(
-            "MERGE (d:Document {id: $id}) SET d.title = $title, d.user_id = $user_id",
+            """
+            CREATE (d:Document {
+                id: $id, title: $title, user_id: $user_id,
+                generation: $generation
+            })
+            """,
             id=document_id,
             title=title or f"Document {document_id}",
             user_id=user_id,
+            generation=generation,
         )
         t.run(
             """
@@ -215,14 +235,16 @@ def build_graph(
             rows=rows["next"],
         )
 
+    ensure_schema()
     with get_driver().session() as session:
         session.execute_write(tx)
 
     logger.info(
         f"Graph built for document {document_id}: "
-        f"{len(rows['chunks'])} chunks, {len(rows['sections'])} sections"
+        f"{len(rows['chunks'])} chunks, {len(rows['sections'])} sections, "
+        f"generation={generation}"
     )
-    return True
+    return generation
 
 
 # ------------------------------------------------------------------ reads
@@ -392,6 +414,17 @@ def get_document(document_id: int) -> Optional[dict]:
             id=int(document_id),
         ).data()
     return rows[0] if rows else None
+
+
+
+def get_document_generation(document_id: int) -> Optional[str]:
+    """Return the current graph generation for a document."""
+    with get_driver().session() as session:
+        row = session.run(
+            "MATCH (d:Document {id: $id}) RETURN d.generation AS generation",
+            id=int(document_id),
+        ).single()
+    return row["generation"] if row and row["generation"] else None
 
 
 def get_chunk_texts(document_id: int) -> List[dict]:
